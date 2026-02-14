@@ -1003,30 +1003,7 @@ void updateConveyorOutput(){
   }
   if(need) ConveyorOn(); else ConveyorOff();
 }
-void OutputNeedData(){
-  char printOutput[1024];
-  int charCount=sprintf(printOutput,
-    "homingActive: %s\n" \
-    "turretFillTo9Requested: %s\n" \
-    "loadedCount: %i\n" \
-    "ninthSettleActive: %s\n" \
-    "deckIsUp: %s\n" \
-    "releaseDwellActive: %s\n" \
-    "turretReleaseRequested: %s\n" \
-    "backgroundRefillRequested: %s\n" \
-    "releaseDwellStart: %i\n" \
-    "forceConveyorForBallReturn: %s \n" \
-    "conesFullHoldArmed: %s \n" \
-    "waitingForBall: %s\n" \
-    "deckConeCount: %i\n", \
-    homingActive ? "true" : "false",turretFillTo9Requested ? "true" : "false",loadedCount, \
-    ninthSettleActive ? "true" : "false",deckIsUp ? "true" : "false",releaseDwellActive ? "true":"false", \
-    turretReleaseRequested ? "true" : "false", \
-    backgroundRefillRequested ? "true" : "false", releaseDwellStart, \
-    forceConveyorForBallReturn ? "true" : "false",conesFullHoldArmed ? "true" : "false", \
-    waitingForBall ? "true" : "false", deckConeCount);
-  Serial.print(printOutput);Serial.print(":");Serial.println(charCount);
-}
+
 void ConveyorOn(){  digitalWrite(MOTOR_RELAY, CONVEYOR_ACTIVE_HIGH?HIGH:LOW); conveyorIsOn=true; }
 void ConveyorOff(){ digitalWrite(MOTOR_RELAY, CONVEYOR_ACTIVE_HIGH?LOW :HIGH); conveyorIsOn=false;}
 
