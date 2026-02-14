@@ -96,48 +96,50 @@ void updateFrameLEDs();
 void frameLEDsFirstHalf();
 
 // =============== ScoreMore mapping =================
-const int maxPins=18;
-const int scoreMorePins[maxPins]={2,3,4,5,6,7,8,9,10,11,12,14,15,16,17,18,19,20};
-const int arduinoPins [maxPins]={
-  A2, //Pin 2
-  A3, //Pin 3
-  A4, //Pin 4
-  A5, //Pin 5
-  A0, //Trigger Sensor
-  40, //Auto Reset Trigger
-  A1, //Ball Speed Sensor
-  42, //Spare / Strike Light
-  43, //Strike Light
-  46, //1st Ball Light
-  47, //2nd Ball Light
-  A1, //Pin 1
-  A6, //Pin 6
-  A7, //Pin 7
-  A8, //Pin 8
-  A9, //Pin 9
-  A10,//Pin 10
-  45  //clear and reset pins on lane
-  }; 
-const int bowlingPins[]={2,3,4,5,14,15,16,17,18,19};
-const int bowlingPinCount=sizeof(bowlingPins)/sizeof(bowlingPins[0]);
+struct PinMapping {
+  int scoreMore;
+  int arduino;
+  bool isBowling;
+};
 
 // ======================= HW PINS =======================
-#define MOTOR_RELAY      4
-#define IR_SENSOR        5
-#define HALL_EFFECT      6
-#define SCISSOR_PIN      7
-#define SLIDE_PIN        8
-#define RAISE_LEFT_PIN   9
-#define RAISE_RIGHT_PIN 10
-#define LEFT_SWEEP_PIN  11
-#define RIGHT_SWEEP_PIN 12
-#define BALL_RETURN_PIN 13
-#define BALL_SENSOR_PIN A0
-#define BALL_SPEED_SENSOR_PIN A1
-#define PINSETTER_RESET_PIN 45
+#define MOTOR_RELAY             4
+#define IR_SENSOR               5
+#define HALL_EFFECT             6
+#define SCISSOR_PIN             7
+#define SLIDE_PIN               8
+#define RAISE_LEFT_PIN          9
+#define RAISE_RIGHT_PIN        10
+#define LEFT_SWEEP_PIN         11
+#define RIGHT_SWEEP_PIN        12
+#define BALL_RETURN_PIN        13
+#define BALL_SENSOR_PIN        A0
+#define BALL_SPEED_SENSOR_PIN  A1
+#define PINSETTER_RESET_PIN    45
 #define CONVEYOR_ACTIVE_HIGH 1
 
+const PinMapping pinMap[] = {
+  { 2, A2,                    true   },  // Bowling pin 2: we map to A2, which is unused
+  { 3, A3,                    true   },  // Bowling pin 3: we map to A3, which is unused
+  { 4, A4,                    true   },  // Bowling pin 4: we map to A4, which is unused
+  { 5, A5,                    true   },  // Bowling pin 5: we map to A5, which is unused
+  { 6, BALL_SENSOR_PIN,       false },  // Trigger sensor
+  { 7, 40,                    false  },  // Auto reset trigger
+  { 8, BALL_SPEED_SENSOR_PIN, false  },  // Ball speed sensor
+  { 9, 42,                    false  },  // Spare/strike light
+  {10, 43,                    false  },  // Strike light
+  {11, 44,                    false  },  // 1st ball light - we could map this to the actual used 46 instead
+  {12, 45,                    false  },  // 2nd ball light - we could map this to the actual used 47 instead
+  {14, A11,                   true   },  // Bowling pin 1: we map to A11, which is unused
+  {15, A6,                    true   },  // Bowling pin 6: we map to A6, which is unused
+  {16, A7,                    true   },  // Bowling pin 7: we map to A7, which is unused
+  {17, A8,                    true   },  // Bowling pin 8: we map to A8, which is unused
+  {18, A9,                    true   },  // Bowling pin 9: we map to A9, which is unused
+  {19, A10,                   true   },  // Bowling pin 10: we map to A10, which is unused
+};
+const int maxPins = sizeof(pinMap) / sizeof(pinMap[0]);
 
+Servo LeftRaiseServo, RightRaiseServo, SlideServo, ScissorsServo, LeftSweepServo, RightSweepServo, BallReturnServo;
 //Angles of the servos (based on left servo when applicable)
 #define SWEEP_BACK_ANGLE       0  // sweep servo angle for back position *HOME* (default 0)
 #define SWEEP_GUARD_ANGLE     50  // sweep servo angle for guard position (default 50)
@@ -153,7 +155,7 @@ const int bowlingPinCount=sizeof(bowlingPins)/sizeof(bowlingPins[0]);
 #define DOOR_CLOSED_ANGLE      0  // door servo angle for closed  *HOME* (default 0)
 #define DOOR_OPEN_ANGLE      180  // door servo angle for open (default 180)
 
-Servo LeftRaiseServo, RightRaiseServo, SlideServo, ScissorsServo, LeftSweepServo, RightSweepServo, BallReturnServo;
+
 
 // ======================= PAUSE MODE (NEW) =======================
 const unsigned long PAUSE_IDLE_MS = 300000; // 2 minutes
@@ -277,7 +279,6 @@ bool backgroundRefillRequested=false;
 
 // Force conveyors for ball return
 bool forceConveyorForBallReturn=false;
-
 bool conveyorIsOn=false;
 // ======================= BALL RETURN DOOR FSM =======================
 const unsigned long BR_CLOSE_AFTER_SWEEPBACK_MS=5000;
@@ -351,6 +352,7 @@ void setup(){
   digitalWrite(FRAME_LED2, LOW);
 
   pinMode(BALL_SENSOR_PIN, INPUT_PULLUP);
+  pinMode(BALL_SPEED_SENSOR_PIN, INPUT_PULLUP);
 
   stepper1.setMaxSpeed(TURRET_NORMAL_MAXSPEED);
   stepper1.setAcceleration(TURRET_NORMAL_ACCEL);
@@ -1007,6 +1009,8 @@ void updateConveyorOutput(){
 void ConveyorOn(){  digitalWrite(MOTOR_RELAY, CONVEYOR_ACTIVE_HIGH?HIGH:LOW); conveyorIsOn=true; }
 void ConveyorOff(){ digitalWrite(MOTOR_RELAY, CONVEYOR_ACTIVE_HIGH?LOW :HIGH); conveyorIsOn=false;}
 
+
+
 // ======================= BALL RETURN DOOR CONTROL =======================
 void onBallThrownDoorClose(){
   BallReturnClosed(); brState=BR_CLOSED_WAIT_SWEEPBACK; brStateStart=millis();
@@ -1161,15 +1165,15 @@ void removeInputPin(int pin){
   }
 }
 int resolveArduinoPin(int scoreMorePin){
-  for(int i=0;i<maxPins;i++) if(scoreMorePins[i]==scoreMorePin) return arduinoPins[i];
+  for(int i=0;i<maxPins;i++) if(pinMap[i].scoreMore==scoreMorePin) return pinMap[i].arduino;
   return -1;
 }
 int getScoreMorePin(int arduinoPin){
-  for(int i=0;i<maxPins;i++) if(arduinoPins[i]==arduinoPin) return scoreMorePins[i];
+  for(int i=0;i<maxPins;i++) if(pinMap[i].arduino==arduinoPin) return pinMap[i].scoreMore;
   return -1;
 }
 bool isBowlingPin(int scoreMorePin){
-  for(int i=0;i<bowlingPinCount;i++) if(bowlingPins[i]==scoreMorePin) return true;
+  for(int i=0;i<maxPins;i++) if(pinMap[i].scoreMore==scoreMorePin) return pinMap[i].isBowling;
   return false;
 }
 
