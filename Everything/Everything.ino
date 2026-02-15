@@ -115,27 +115,47 @@ struct PinMapping {
 #define BALL_RETURN_PIN        13
 #define BALL_SENSOR_PIN        A0
 #define BALL_SPEED_SENSOR_PIN  A1
-#define PINSETTER_RESET_PIN    45
+#define PINSETTER_RESET_PIN    41
 #define CONVEYOR_ACTIVE_HIGH 1
 
+#define SM_PIN_1           14
+#define SM_PIN_2            2
+#define SM_PIN_3            3
+#define SM_PIN_4            4
+#define SM_PIN_5            5
+#define SM_PIN_6           15
+#define SM_PIN_7           16
+#define SM_PIN_8           17
+#define SM_PIN_9           18
+#define SM_PIN_10          19
+#define SM_BALL_TRIGGER     6
+#define SM_AUTO_RESET       7
+#define SM_SPEED_SENSOR     8
+#define SM_SPARE_LIGHT      9
+#define SM_STRIKE_LIGHT    10
+#define SM_FIRST_BALL      11
+#define SM_SECOND_BALL     12
+#define SM_PINSETTER_RESET 20
+
 const PinMapping pinMap[] = {
-  { 2, A2,                    true   },  // Bowling pin 2: we map to A2, which is unused
-  { 3, A3,                    true   },  // Bowling pin 3: we map to A3, which is unused
-  { 4, A4,                    true   },  // Bowling pin 4: we map to A4, which is unused
-  { 5, A5,                    true   },  // Bowling pin 5: we map to A5, which is unused
-  { 6, BALL_SENSOR_PIN,       false },  // Trigger sensor
-  { 7, 40,                    false  },  // Auto reset trigger
-  { 8, BALL_SPEED_SENSOR_PIN, false  },  // Ball speed sensor
-  { 9, 42,                    false  },  // Spare/strike light
-  {10, 43,                    false  },  // Strike light
-  {11, 44,                    false  },  // 1st ball light - we could map this to the actual used 46 instead
-  {12, 45,                    false  },  // 2nd ball light - we could map this to the actual used 47 instead
-  {14, A11,                   true   },  // Bowling pin 1: we map to A11, which is unused
-  {15, A6,                    true   },  // Bowling pin 6: we map to A6, which is unused
-  {16, A7,                    true   },  // Bowling pin 7: we map to A7, which is unused
-  {17, A8,                    true   },  // Bowling pin 8: we map to A8, which is unused
-  {18, A9,                    true   },  // Bowling pin 9: we map to A9, which is unused
-  {19, A10,                   true   },  // Bowling pin 10: we map to A10, which is unused
+  { SM_PIN_2,        A2,                    true  },  // Bowling pin 2: we map to A2, which is unused
+  { SM_PIN_3,        A3,                    true  },  // Bowling pin 3: we map to A3, which is unused
+  { SM_PIN_4,        A4,                    true  },  // Bowling pin 4: we map to A4, which is unused
+  { SM_PIN_5,        A5,                    true  },  // Bowling pin 5: we map to A5, which is unused
+  { SM_BALL_TRIGGER, BALL_SENSOR_PIN,       false },  // Trigger sensor
+  { SM_AUTO_RESET,   40,                    false },  // Auto reset trigger
+  { SM_SPEED_SENSOR, BALL_SPEED_SENSOR_PIN, false },  // Ball speed sensor
+  { SM_SPARE_LIGHT,  42,                    false },  // Spare/strike light
+  { SM_STRIKE_LIGHT, 43,                    false },  // Strike light
+  { SM_FIRST_BALL,   44,                    false },  // 1st ball light - we could map this to the actual used 46 instead
+  { SM_SECOND_BALL,  45,                    false },  // 2nd ball light - we could map this to the actual used 47 instead
+  { SM_PIN_1,        A11,                   true  },  // Bowling pin 1: we map to A11, which is unused
+  { SM_PIN_6,        A6,                    true  },  // Bowling pin 6: we map to A6, which is unused
+  { SM_PIN_7,        A7,                    true  },  // Bowling pin 7: we map to A7, which is unused
+  { SM_PIN_8,        A8,                    true  },  // Bowling pin 8: we map to A8, which is unused
+  { SM_PIN_9,        A9,                    true  },  // Bowling pin 9: we map to A9, which is unused
+  { SM_PIN_10,       A10,                   true  },  // Bowling pin 10: we map to A10, which is unused
+  { SM_PINSETTER_RESET, PINSETTER_RESET_PIN,   false  },
 };
 const int maxPins = sizeof(pinMap) / sizeof(pinMap[0]);
 
@@ -204,6 +224,9 @@ int  throwCount=1;
 
 // Strike light
 bool strikeLightOn=false, strikeEdgeLatched=false, strikeDetected=false;
+
+// Reset button
+bool pinsetterResetRequested=false;
 
 // ===== Fill-ball (ScoreMore logical pin 7) =====
 bool autoResetFillBall = false;
@@ -495,7 +518,14 @@ void loop(){
   if(!ballRearmed && (millis()-lastBallHighMs>=BALL_REARM_MS) && rawBall==HIGH){ ballRearmed=true; }
   ballPrev=rawBall;
 
-  if(stepIndex>0) runSequence();
+  if(stepIndex>0){
+     runSequence();
+  } else {
+    if(pinsetterResetRequested) {  //if the reset button has been pressed and no other sequences are queued
+      stepIndex=22;       //trigger reset of the lane
+      pinsetterResetRequested=false;
+    }
+  }
 }
 
 // ======================= SEQUENCER =======================
@@ -1062,7 +1092,7 @@ void handleCommand(String cmd){
     Serial.println(pin);*/
     if(pin!=-1) {
       if(!isTrackedInput(pin) && inputCount<maxPins){
-        if(isBowlingPin(scoreMorePin)) pinMode(pin, INPUT_PULLUP); else pinMode(pin, INPUT);
+        if(isBowlingPin(scoreMorePin)) pinMode(pin, INPUT_PULLUP); else pinMode(pin, INPUT_PULLUP);
         inputPins[inputCount]=pin; pinStates[inputCount]=digitalRead(pin); inputCount++;
         Serial.print("ACK_SET_INPUT:"); Serial.println(scoreMorePin);
       }
@@ -1089,7 +1119,7 @@ void handleCommand(String cmd){
         digitalWrite(pin, value);
 
         // Strike (ScoreMore logical pin 10)
-        if(scoreMorePin==10){
+        if(scoreMorePin==SM_STRIKE_LIGHT){
           bool prev=strikeLightOn;
           strikeLightOn=(value!=0);
           if(!prev && strikeLightOn && !strikeEdgeLatched){
@@ -1099,7 +1129,7 @@ void handleCommand(String cmd){
         }
 
         // Fill-ball grant (ScoreMore logical pin 7)
-        else if (scoreMorePin==7){
+        else if (scoreMorePin==SM_AUTO_RESET){
           bool prev = autoResetFillBall;
           bool isHigh = (value != 0);
           if(!prev && isHigh && !autoResetEdgeLatched){
@@ -1132,7 +1162,7 @@ void handleCommand(String cmd){
   } else if(cmd=="VERSION"){
     Serial.println(VERSION);
   } else if(cmd=="PINSETTER_RESET"){
-    stepIndex=24;
+    pinsetterResetRequested=true;
     Serial.println("ACK_PINSETTER_RESET");
   } else Serial.println("ACK_UNKNOWN_COMMAND");
 }
