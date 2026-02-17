@@ -24,31 +24,24 @@
 #include <Adafruit_NeoPixel.h>
 #include <Servo.h>
 #include <AccelStepper.h>
+#if __has_include("pin_config.user.h")
+  #include "pin_config.user.h"
+#else
+  #include "pin_config.h"
+#endif
+#if __has_include("user_config.user.h")
+  #include "user_config.user.h"
+#else
+  #include "user_config.h"
+#endif
 
 // 
 #define VERSION "1.2.0"
 
-// =============== ScoreMore Serial ===============
-#define SCOREMORE_BAUD 9600
-
-// =============== LED CONFIG =====================
-#define DECK_PIN_A   50 //LEFT
-#define DECK_PIN_B   51 //RIGHT
-#define LANE_PIN_A   52 //LEFT
-#define LANE_PIN_B   53 //RIGHT
-
-#define DECK_LEN1    11
-#define DECK_LEN2    11
-#define LANE_LEN1    41
-#define LANE_LEN2    41
-
-#define LED_BRIGHTNESS_NORMAL  80
-#define LED_BRIGHTNESS_STRIKE  40
-
-Adafruit_NeoPixel deckA(DECK_LEN1, DECK_PIN_A, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel deckB(DECK_LEN2, DECK_PIN_B, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel laneA(LANE_LEN1, LANE_PIN_A, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel laneB(LANE_LEN2, LANE_PIN_B, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel deckA(DECK_LED_LENGTH_L, DECK_PIN_A, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel deckB(DECK_LED_LENGTH_R, DECK_PIN_B, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel laneA(LANE_LED_LENGTH_L, LANE_PIN_A, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel laneB(LANE_LED_LENGTH_R, LANE_PIN_B, NEO_GRB + NEO_KHZ800);
 
 static inline uint32_t C_WHITE(Adafruit_NeoPixel &s){ return s.Color(255,255,255); }
 static inline uint32_t C_RED  (Adafruit_NeoPixel &s){ return s.Color(255,  0,  0); }
@@ -63,28 +56,12 @@ bool lanePauseArmed=false, lanePaused=false;
 
 bool scoreWindowActive=false, strikePending=false, lightsShownAfterBoot=false;
 
-// --- Strike timings ---
-const unsigned long STRIKE_WIPE_MS=300, FLASH_ON_MS=120, FLASH_OFF_MS=120;
-const int           FLASH_COUNT=3;
-const unsigned long STRIKE_FRAME_MS=15;
-
 unsigned long strikeWipeStartMs=0, strikeLastFrameMs=0, flashLastMs=0;
 bool flashOnPhase=false; int flashCycles=0;
 
-const unsigned long STARTUP_WIPE_MS_PER_STEP=5;
-const unsigned long STRIKE_SWEEP_PAUSE_MS=1000;
-
-// ====== Ball "comet" ======
-const unsigned long BALL_COMET_MS=500, BALL_COMET_FRAME_MS=15;
-const int COMET_LEN=4;
 unsigned long ballCometStartMs=0, ballCometLastFrame=0;
 
-// >>> NEW: universal extra settle for slower deck motors <<<
-const unsigned long DECK_EXTRA_SETTLE_MS = 500;
-
-// ====== FRAME STATE LEDS (NEW) ======
-#define FRAME_LED1 46   // First throw / first half indicator
-#define FRAME_LED2 47   // Second throw / second half adds this LED
+// ====== FRAME STATE LEDS ======
 
 // Helpers
 void ledsBegin(); void deckAll(uint32_t col); void laneAll(uint32_t col); void ledsShowAll(); void laneShowOnly();
@@ -102,41 +79,6 @@ struct PinMapping {
   bool isBowling;
 };
 
-// ======================= HW PINS =======================
-#define MOTOR_RELAY             4
-#define IR_SENSOR               5
-#define HALL_EFFECT             6
-#define SCISSOR_PIN             7
-#define SLIDE_PIN               8
-#define RAISE_LEFT_PIN          9
-#define RAISE_RIGHT_PIN        10
-#define LEFT_SWEEP_PIN         11
-#define RIGHT_SWEEP_PIN        12
-#define BALL_RETURN_PIN        13
-#define BALL_SENSOR_PIN        A0
-#define BALL_SPEED_SENSOR_PIN  A1
-#define PINSETTER_RESET_PIN    41
-#define CONVEYOR_ACTIVE_HIGH 1
-
-#define SM_PIN_1           14
-#define SM_PIN_2            2
-#define SM_PIN_3            3
-#define SM_PIN_4            4
-#define SM_PIN_5            5
-#define SM_PIN_6           15
-#define SM_PIN_7           16
-#define SM_PIN_8           17
-#define SM_PIN_9           18
-#define SM_PIN_10          19
-#define SM_BALL_TRIGGER     6
-#define SM_AUTO_RESET       7
-#define SM_SPEED_SENSOR     8
-#define SM_SPARE_LIGHT      9
-#define SM_STRIKE_LIGHT    10
-#define SM_FIRST_BALL      11
-#define SM_SECOND_BALL     12
-#define SM_PINSETTER_RESET 20
-
 const PinMapping pinMap[] = {
   { SM_PIN_2,        A2,                    true  },  // Bowling pin 2: we map to A2, which is unused
   { SM_PIN_3,        A3,                    true  },  // Bowling pin 3: we map to A3, which is unused
@@ -144,7 +86,7 @@ const PinMapping pinMap[] = {
   { SM_PIN_5,        A5,                    true  },  // Bowling pin 5: we map to A5, which is unused
   { SM_BALL_TRIGGER, BALL_SENSOR_PIN,       false },  // Trigger sensor
   { SM_AUTO_RESET,   40,                    false },  // Auto reset trigger
-  { SM_SPEED_SENSOR, BALL_SPEED_SENSOR_PIN, false },  // Ball speed sensor
+  { SM_SPEED_SENSOR, BALL_SPEED_PIN,        false },  // Ball speed sensor
   { SM_SPARE_LIGHT,  42,                    false },  // Spare/strike light
   { SM_STRIKE_LIGHT, 43,                    false },  // Strike light
   { SM_FIRST_BALL,   44,                    false },  // 1st ball light - we could map this to the actual used 46 instead
@@ -160,25 +102,8 @@ const PinMapping pinMap[] = {
 const int maxPins = sizeof(pinMap) / sizeof(pinMap[0]);
 
 Servo LeftRaiseServo, RightRaiseServo, SlideServo, ScissorsServo, LeftSweepServo, RightSweepServo, BallReturnServo;
-//Angles of the servos (based on left servo when applicable)
-#define SWEEP_BACK_ANGLE       0  // sweep servo angle for back position *HOME* (default 0)
-#define SWEEP_GUARD_ANGLE     50  // sweep servo angle for guard position (default 50)
-#define SWEEP_UP_ANGLE        85  // sweep servo angle for up position (default 85)
-#define RAISE_UP_ANGLE       180  // raise servo angle for deck fully up  *HOME* (default 180)
-#define RAISE_RELEASE_ANGLE   80  // raise servo angle for deck ready to release grabbed pins (default 80)
-#define RAISE_GRAB_ANGLE      60  // raise servo angle for deck ready to grab pins before sweep (default 60)
-#define RAISE_DOWN_ANGLE      20  // raise servo angle for setting pins (default 20)
-#define SLIDE_FORWARD_ANGLE  180  // slide servo angle for forward position  *HOME* (default 180)
-#define SLIDE_BACK_ANGLE     100  // slide servo angle for back position (default 100)
-#define SCISSORS_OPEN_ANGLE   90  // scissors servo angle for open  *HOME* (default 90)
-#define SCISSORS_CLOSED      140  // scissors servo angle for closed (default 140)
-#define DOOR_CLOSED_ANGLE      0  // door servo angle for closed  *HOME* (default 0)
-#define DOOR_OPEN_ANGLE      180  // door servo angle for open (default 180)
 
-
-
-// ======================= PAUSE MODE (NEW) =======================
-const unsigned long PAUSE_IDLE_MS = 300000; // 2 minutes
+// ======================= PAUSE MODE =======================
 bool pauseMode = false;
 unsigned long lastBallActivityMs = 0;
 
@@ -196,11 +121,9 @@ void setAllLightsWhite();
 // ======================= SEQUENCER STATE =======================
 unsigned long prevStepMillis=0, prevScoreMillis=0;
 int stepIndex=0;
-const unsigned long SCORE_INTERVAL=5;
 
 // ---- ScoreMore ball trigger mirroring ----
 const int SCOREMORE_BALL_LOGICAL_PIN = 6;
-const unsigned long SCOREMORE_BALL_PULSE_MS = 150;
 bool smBallPulseActive = false;
 unsigned long smBallPulseStart = 0;
 void scoremoreBallPulse_begin(){
@@ -217,7 +140,6 @@ void scoremoreBallPulse_update(){
 }
 
 // Ball trigger
-const unsigned long BALL_LOW_CONFIRM_US=1000, BALL_REARM_MS=300;
 int  ballPrev=HIGH; bool ballPending=false, ballRearmed=true, waitingForBall=true;
 unsigned long ballLowStartUs=0, lastBallHighMs=0;
 int  throwCount=1;
@@ -238,31 +160,15 @@ bool fillBallShotInProgress = false;
 int inputPins[maxPins], pinStates[maxPins], inputCount=0;
 
 // ======================= TURRET / STEPPER =======================
-AccelStepper stepper1(1,2,3);
-
-// ---- Speed profiles ----
-const float TURRET_NORMAL_MAXSPEED   = 650.0;
-const float TURRET_NORMAL_ACCEL      = 3000.0;
-const float TURRET_SPRING_MAXSPEED   = 300.0;
-const float TURRET_SPRING_ACCEL      = 1500.0;
-
-// Turret timing
-#define DEBOUNCE_DELAY 50
-const unsigned long CATCH_DELAY_MS=800, RELEASE_DWELL_MS=1000, RELEASE_FEED_ASSIST_MS=250, NINTH_SETTLE_MS=300;
+AccelStepper stepper1(1, STEP_PIN, DIR_PIN);
 
 bool ninthSettleActive=false, catchDelayActive=false, releaseDwellActive=false;
 unsigned long ninthSettleStart=0, catchDelayStart=0, releaseDwellStart=0;
 
 // Pin positions
-const int PinPositions[]={0,-133,-267,-400,-667,-800,-933,-1200,-1333,-1467,-1600};
-const int Pin10ReleaseOffset = -30;
-static inline long Pin10ReleasePos(){ return PinPositions[10] + Pin10ReleaseOffset; }
+const int PinPositions[]={PIN_POS_0, PIN_POS_1, PIN_POS_2, PIN_POS_3, PIN_POS_4, PIN_POS_5, PIN_POS_6, PIN_POS_7, PIN_POS_8, PIN_POS_9, PIN_POS_10};
+static inline long Pin10ReleasePos(){ return PinPositions[10] + TURRET_PIN10_RELEASE_OFFSET; }
 
-// Extra-only-for-boot purge offset
-const int EmptyTurretExtraOffset = -60;
-
-//less negative means CCW
-int HomeAdjuster=-63;
 int NowCatching=1, loadedCount=0;
 
 bool moving=false; long targetPos=0;
@@ -276,8 +182,6 @@ int irStableState=HIGH, irLastRead=HIGH; unsigned long irLastChange=0; bool pinE
 bool turretReleaseRequested=false, turretFillTo9Requested=false;
 bool conveyorLockedByDwell=false, suspendConveyorUntilHomeDone=false;
 
-// ---- Idle-stall timeout ----
-const unsigned long NO_CATCH_TIMEOUT_MS = 30000;
 unsigned long lastPinCatchMs = 0;
 
 // Non-blocking homing
@@ -304,7 +208,6 @@ bool backgroundRefillRequested=false;
 bool forceConveyorForBallReturn=false;
 bool conveyorIsOn=false;
 // ======================= BALL RETURN DOOR FSM =======================
-const unsigned long BR_CLOSE_AFTER_SWEEPBACK_MS=5000;
 enum BallReturnState { BR_IDLE_OPEN=0, BR_IDLE_CLOSED, BR_CLOSED_WAIT_SWEEPBACK, BR_CLOSED_HOLD_AFTER_SWEEP };
 BallReturnState brState=BR_IDLE_CLOSED;
 unsigned long brStateStart=0;
@@ -356,8 +259,6 @@ bool conesFullHold=false;
 bool conesFullHoldArmed=false;
 unsigned long conesFullHoldStartMs=0;
 
-// ---- Post-Set Resume Delay ----
-const unsigned long RESUME_AFTER_DECKUP_MS = 2000;
 bool postSetResumeDelayActive = false;
 unsigned long postSetResumeStart = 0;
 
@@ -366,16 +267,16 @@ void setup(){
   ledsBegin();
   pinMode(PINSETTER_RESET_PIN, INPUT_PULLUP);
   // Frame LEDs
-  pinMode(FRAME_LED1, OUTPUT);
-  pinMode(FRAME_LED2, OUTPUT);
-  digitalWrite(FRAME_LED1, LOW);
-  digitalWrite(FRAME_LED2, HIGH);  //indicate to the user that we're in setup
+  pinMode(FRAME_LED1_PIN, OUTPUT);
+  pinMode(FRAME_LED2_PIN, OUTPUT);
+  digitalWrite(FRAME_LED1_PIN, LOW);
+  digitalWrite(FRAME_LED2_PIN, HIGH);  //indicate to the user that we're in setup
 
   Serial.begin(SCOREMORE_BAUD); delay(1000); Serial.println("READY");
-  digitalWrite(FRAME_LED2, LOW);
+  digitalWrite(FRAME_LED2_PIN, LOW);
 
   pinMode(BALL_SENSOR_PIN, INPUT_PULLUP);
-  pinMode(BALL_SPEED_SENSOR_PIN, INPUT_PULLUP);
+  pinMode(BALL_SPEED_PIN, INPUT_PULLUP);
 
   stepper1.setMaxSpeed(TURRET_NORMAL_MAXSPEED);
   stepper1.setAcceleration(TURRET_NORMAL_ACCEL);
@@ -401,11 +302,11 @@ void setup(){
   setSweepInstant(SWEEP_UP_ANGLE, 180 - SWEEP_UP_ANGLE); 
   SweepUp(); waitSweepDone(); pumpAll(1000);
 
-  pinMode(MOTOR_RELAY, OUTPUT); ConveyorOff();
-  pinMode(IR_SENSOR, INPUT);
+  pinMode(MOTOR_RELAY_PIN, OUTPUT); ConveyorOff();
+  pinMode(IR_SENSOR_PIN, INPUT);
 
   // ===== NEW: Initialize IR debounce & queue if beam starts blocked =====
-  irLastRead    = digitalRead(IR_SENSOR);
+  irLastRead    = digitalRead(IR_SENSOR_PIN);
   irStableState = irLastRead;
   irLastChange  = millis();
   if (irStableState == LOW) {
@@ -417,7 +318,7 @@ void setup(){
   }
   // =====================================================================
 
-  pinMode(HALL_EFFECT, INPUT_PULLUP);
+  pinMode(HALL_EFFECT_PIN, INPUT_PULLUP);
 
   PowerOnSequence();
 
@@ -654,36 +555,36 @@ void DeckUp() {
 
 void DeckPinSet() {
   LeftRaiseServo.write(RAISE_DOWN_ANGLE);
-  RightRaiseServo.write(180-RAISE_DOWN_ANGLE);
+  RightRaiseServo.write(180 - RAISE_DOWN_ANGLE);
   deckIsUp = false;  //report deck as not up right away
   pumpAll(DECK_EXTRA_SETTLE_MS);
 }
 
 void DeckPinGrab() {
   LeftRaiseServo.write(RAISE_GRAB_ANGLE);
-  RightRaiseServo.write(180-RAISE_GRAB_ANGLE);
+  RightRaiseServo.write(180 - RAISE_GRAB_ANGLE);
   deckIsUp = false;    //report deck is not up right away
   pumpAll(DECK_EXTRA_SETTLE_MS);
 }
 
 void DeckPinDrop() {
-  LeftRaiseServo.write(RAISE_RELEASE_ANGLE);
-  RightRaiseServo.write(180-RAISE_RELEASE_ANGLE);
+  LeftRaiseServo.write(RAISE_DROP_ANGLE);
+  RightRaiseServo.write(180 - RAISE_DROP_ANGLE);
   deckIsUp = false;    //report deck is not up right away
   pumpAll(DECK_EXTRA_SETTLE_MS);
 }
 
-void SlidingDeckRelease()  { SlideServo.write(SLIDE_BACK_ANGLE); }
-void SlidingDeckHome()     { SlideServo.write(SLIDE_FORWARD_ANGLE); }
-void ScissorsGrab()        { ScissorsServo.write(SCISSORS_CLOSED); }
-void ScissorsDrop()        { ScissorsServo.write(SCISSORS_OPEN_ANGLE); }
-void BallReturnClosed()    { BallReturnServo.write(DOOR_CLOSED_ANGLE); }
-void BallReturnOpen()      { BallReturnServo.write(DOOR_OPEN_ANGLE); }
+void SlidingDeckRelease()  { SlideServo.write(SLIDER_RELEASE_ANGLE); }
+void SlidingDeckHome()     { SlideServo.write(SLIDER_HOME_ANGLE); }
+void ScissorsGrab()        { ScissorsServo.write(SCISSOR_GRAB_ANGLE); }
+void ScissorsDrop()        { ScissorsServo.write(SCISSOR_DROP_ANGLE); }
+void BallReturnClosed()    { BallReturnServo.write(BALL_DOOR_CLOSED_ANGLE); }
+void BallReturnOpen()      { BallReturnServo.write(BALL_DOOR_OPEN_ANGLE); }
 
 // NOTE: set sweepPoseTarget so pause mode can tell where we are
-void SweepGuard(){ sweepPoseTarget = SWEEP_GUARD; startSweepTo(SWEEP_GUARD_ANGLE, 180-SWEEP_GUARD_ANGLE, 500); }
-void SweepUp()   { sweepPoseTarget = SWEEP_UP;    startSweepTo(SWEEP_UP_ANGLE, 180-SWEEP_UP_ANGLE,500); }
-void SweepBack() { sweepPoseTarget = SWEEP_BACK;  startSweepTo(0,180,500); }
+void SweepGuard(){ sweepPoseTarget = SWEEP_GUARD; startSweepTo(SWEEP_GUARD_ANGLE, 180-SWEEP_GUARD_ANGLE, SWEEP_TWEEN_MS); }
+void SweepUp()   { sweepPoseTarget = SWEEP_UP;    startSweepTo(SWEEP_UP_ANGLE, 180-SWEEP_UP_ANGLE, SWEEP_TWEEN_MS); }
+void SweepBack() { sweepPoseTarget = SWEEP_BACK;  startSweepTo(SWEEP_BACK_ANGLE, 180-SWEEP_BACK_ANGLE, SWEEP_TWEEN_MS); }
 
 // ======================= STRIKE SWEEP HELPER =======================
 void StrikeSweepClearLane(){
@@ -791,7 +692,7 @@ void runTurret(){
 
   // Special: EmptyTurret non-blocking return-to-hall
   if (emptyTurretReturnActive) {
-    if (digitalRead(HALL_EFFECT) == LOW || stepper1.distanceToGo() == 0) {
+    if (digitalRead(HALL_EFFECT_PIN) == LOW || stepper1.distanceToGo() == 0) {
       stepper1.stop();
       emptyTurretReturnActive = false;
     }
@@ -806,9 +707,9 @@ void runTurret(){
   }
 
   // IR debounce
-  int raw=digitalRead(IR_SENSOR);
+  int raw=digitalRead(IR_SENSOR_PIN);
   if(raw!=irLastRead){ irLastChange=millis(); irLastRead=raw; }
-  if((millis()-irLastChange)>DEBOUNCE_DELAY){
+  if((millis()-irLastChange)>DEBOUNCE_MS){
     if(irStableState!=raw) irStableState=raw;
   }
   if(irStableState==HIGH) pinEdgeArmed=true;
@@ -936,7 +837,7 @@ void runHomingFSM(){
       if(stepper1.distanceToGo()==0){ homingPhase=HOME_ADVANCE_TO_SWITCH; }
       break;
     case HOME_ADVANCE_TO_SWITCH:{
-      if(digitalRead(HALL_EFFECT)==HIGH){
+      if(digitalRead(HALL_EFFECT_PIN)==HIGH){
         if(stepper1.distanceToGo()==0){ goTo(stepper1.currentPosition()+10); }
       }else{
         homingPhase=HOME_BACKOFF; goTo(stepper1.currentPosition()-150);
@@ -948,10 +849,10 @@ void runHomingFSM(){
       }
       break;
     case HOME_CREEP_TO_SWITCH:{
-      if(digitalRead(HALL_EFFECT)==HIGH){
+      if(digitalRead(HALL_EFFECT_PIN)==HIGH){
         if(stepper1.distanceToGo()==0){ goTo(stepper1.currentPosition()+2); }
       }else{
-        stepper1.setCurrentPosition(HomeAdjuster);
+        stepper1.setCurrentPosition(TURRET_HOME_ADJUSTER);
         stepper1.setMaxSpeed(500); stepper1.setAcceleration(3000);
         goTo(PinPositions[1]); homingPhase=HOME_SETZERO_AND_MOVE_SLOT1;
       }
@@ -972,7 +873,7 @@ void runHomingFSM(){
       }
 
       // Sync IR debounce state to current sensor and avoid fake "new pin"
-      int irNow = digitalRead(IR_SENSOR);
+      int irNow = digitalRead(IR_SENSOR_PIN);
       irLastRead    = irNow;
       irStableState = irNow;
       if(irNow == LOW){
@@ -1036,8 +937,8 @@ void updateConveyorOutput(){
   if(need) ConveyorOn(); else ConveyorOff();
 }
 
-void ConveyorOn(){  digitalWrite(MOTOR_RELAY, CONVEYOR_ACTIVE_HIGH?HIGH:LOW); conveyorIsOn=true; }
-void ConveyorOff(){ digitalWrite(MOTOR_RELAY, CONVEYOR_ACTIVE_HIGH?LOW :HIGH); conveyorIsOn=false;}
+void ConveyorOn(){  digitalWrite(MOTOR_RELAY_PIN, CONVEYOR_ACTIVE_HIGH?HIGH:LOW); conveyorIsOn=true; }
+void ConveyorOff(){ digitalWrite(MOTOR_RELAY_PIN, CONVEYOR_ACTIVE_HIGH?LOW :HIGH); conveyorIsOn=false;}
 
 
 
@@ -1160,8 +1061,8 @@ void handleCommand(String cmd){
             autoResetEdgeLatched = true;
             inFillBall = true;
 
-            for(int i=0;i<LANE_LEN1;i++) laneA.setPixelColor(i, C_GREEN(laneA));
-            for(int i=0;i<LANE_LEN2;i++) laneB.setPixelColor(i, C_GREEN(laneB));
+            for(int i=0;i<LANE_LED_LENGTH_L;i++) laneA.setPixelColor(i, C_GREEN(laneA));
+            for(int i=0;i<LANE_LED_LENGTH_R;i++) laneB.setPixelColor(i, C_GREEN(laneB));
             laneShowOnly();
 
             Serial.println("AUTO_RESET_FILL_BALL_ARMED (GREEN ON)");
@@ -1308,9 +1209,9 @@ void pumpAll(unsigned long ms){
 // ======================= EmptyTurret (boot-only) =======================
 //  1) Fast slam into hall sensor.
 //  2) Fast move to pin 9.
-//  3) Slow move to purge release (Pin10ReleasePos + EmptyTurretExtraOffset).
+//  3) Slow move to purge release (Pin10ReleasePos + TURRET_EMPTY_EXTRA_OFFSET).
 //  4) Dwell so pins fully dump.
-//  5) Start non-blocking move back toward hall; runTurret() will stop on HALL_EFFECT.
+//  5) Start non-blocking move back toward hall; runTurret() will stop on HALL_EFFECT_PIN.
 void EmptyTurret() {
   homingActive = false;
   homingPhase  = HOME_IDLE;
@@ -1325,7 +1226,7 @@ void EmptyTurret() {
   long farTarget = startPos + 5000;
 
   stepper1.moveTo(farTarget);
-  while (digitalRead(HALL_EFFECT) == HIGH && stepper1.distanceToGo() != 0) {
+  while (digitalRead(HALL_EFFECT_PIN) == HIGH && stepper1.distanceToGo() != 0) {
     stepper1.run();
   }
 
@@ -1334,7 +1235,7 @@ void EmptyTurret() {
     stepper1.run();
   }
 
-  stepper1.setCurrentPosition(HomeAdjuster);
+  stepper1.setCurrentPosition(TURRET_HOME_ADJUSTER);
 
   // 2) Fast move to pin 9
   goTo(PinPositions[9]);
@@ -1343,7 +1244,7 @@ void EmptyTurret() {
   }
 
   // 3) Slow spring-safe move to purge release
-  long purgeReleasePos = Pin10ReleasePos() + EmptyTurretExtraOffset;
+  long purgeReleasePos = Pin10ReleasePos() + TURRET_EMPTY_EXTRA_OFFSET;
 
   stepper1.setMaxSpeed(TURRET_SPRING_MAXSPEED);
   stepper1.setAcceleration(TURRET_SPRING_ACCEL);
@@ -1376,12 +1277,12 @@ void ledsBegin(){
 }
 
 void deckAll(uint32_t col){
-  for(int i=0;i<DECK_LEN1;i++) deckA.setPixelColor(i,col);
-  for(int i=0;i<DECK_LEN2;i++) deckB.setPixelColor(i,col);
+  for(int i=0;i<DECK_LED_LENGTH_L;i++) deckA.setPixelColor(i,col);
+  for(int i=0;i<DECK_LED_LENGTH_R;i++) deckB.setPixelColor(i,col);
 }
 void laneAll(uint32_t col){
-  for(int i=0;i<LANE_LEN1;i++) laneA.setPixelColor(i,col);
-  for(int i=0;i<LANE_LEN2;i++) laneB.setPixelColor(i,col);
+  for(int i=0;i<LANE_LED_LENGTH_L;i++) laneA.setPixelColor(i,col);
+  for(int i=0;i<LANE_LED_LENGTH_R;i++) laneB.setPixelColor(i,col);
 }
 void ledsShowAll(){ deckA.show(); deckB.show(); laneA.show(); laneB.show(); }
 void laneShowOnly(){ laneA.show(); laneB.show(); }
@@ -1399,8 +1300,8 @@ void startStrikeFlash(){
   if(scoreWindowActive) return;
   flashOnPhase=true; flashCycles=0; flashLastMs=millis(); laneMode=LANE_STRIKE_FLASH;
   uint32_t redA=C_RED(laneA), redB=C_RED(laneB);
-  for(int i=0;i<LANE_LEN1;i++) laneA.setPixelColor(i,redA);
-  for(int i=0;i<LANE_LEN2;i++) laneB.setPixelColor(i,redB);
+  for(int i=0;i<LANE_LED_LENGTH_L;i++) laneA.setPixelColor(i,redA);
+  for(int i=0;i<LANE_LED_LENGTH_R;i++) laneB.setPixelColor(i,redB);
   laneShowOnly();
 }
 
@@ -1428,11 +1329,11 @@ void laneUpdate(){
     }else if(strikeLastFrameMs==0 || (now - strikeLastFrameMs)>=STRIKE_FRAME_MS){
       strikeLastFrameMs=now;
       float t=(float)elapsed/(float)STRIKE_WIPE_MS;
-      int n1=(int)(t*LANE_LEN1+0.5f), n2=(int)(t*LANE_LEN2+0.5f);
+      int n1=(int)(t*LANE_LED_LENGTH_L+0.5f), n2=(int)(t*LANE_LED_LENGTH_R+0.5f);
       uint32_t redA=C_RED(laneA), redB=C_RED(laneB);
-      for(int i=0;i<LANE_LEN1;i++)
+      for(int i=0;i<LANE_LED_LENGTH_L;i++)
         laneA.setPixelColor(i,(i<n1)?redA:C_WHITE(laneA));
-      for(int i=0;i<LANE_LEN2;i++)
+      for(int i=0;i<LANE_LED_LENGTH_R;i++)
         laneB.setPixelColor(i,(i<n2)?redB:C_WHITE(laneB));
       laneShowOnly();
     }
@@ -1457,8 +1358,8 @@ void laneUpdate(){
         }else{
           flashOnPhase=true; 
           uint32_t redA=C_RED(laneA), redB=C_RED(laneB);
-          for(int i=0;i<LANE_LEN1;i++) laneA.setPixelColor(i,redA);
-          for(int i=0;i<LANE_LEN2;i++) laneB.setPixelColor(i,redB);
+          for(int i=0;i<LANE_LED_LENGTH_L;i++) laneA.setPixelColor(i,redA);
+          for(int i=0;i<LANE_LED_LENGTH_R;i++) laneB.setPixelColor(i,redB);
           laneShowOnly();
         }
       }
@@ -1475,16 +1376,16 @@ void laneUpdate(){
     if(now - ballCometLastFrame >= BALL_COMET_FRAME_MS){
       ballCometLastFrame=now;
       float t=(float)elapsed/(float)BALL_COMET_MS;
-      int maxIndexA=LANE_LEN1+COMET_LEN, maxIndexB=LANE_LEN2+COMET_LEN;
+      int maxIndexA=LANE_LED_LENGTH_L+COMET_LEN, maxIndexB=LANE_LED_LENGTH_R+COMET_LEN;
       int headA=(int)(t*maxIndexA+0.5f), headB=(int)(t*maxIndexB+0.5f);
 
-      for(int i=0;i<LANE_LEN1;i++) laneA.setPixelColor(i,C_OFF(laneA));
-      for(int i=0;i<LANE_LEN2;i++) laneB.setPixelColor(i,C_OFF(laneB));
+      for(int i=0;i<LANE_LED_LENGTH_L;i++) laneA.setPixelColor(i,C_OFF(laneA));
+      for(int i=0;i<LANE_LED_LENGTH_R;i++) laneB.setPixelColor(i,C_OFF(laneB));
 
       for(int k=0;k<COMET_LEN;k++){
         int idxA=headA-k, idxB=headB-k;
-        if(idxA>=0 && idxA<LANE_LEN1) laneA.setPixelColor(idxA,C_WHITE(laneA));
-        if(idxB>=0 && idxB<LANE_LEN2) laneB.setPixelColor(idxB,C_WHITE(laneB));
+        if(idxA>=0 && idxA<LANE_LED_LENGTH_L) laneA.setPixelColor(idxA,C_WHITE(laneA));
+        if(idxB>=0 && idxB<LANE_LED_LENGTH_R) laneB.setPixelColor(idxB,C_WHITE(laneB));
       }
       laneShowOnly();
     }
@@ -1493,15 +1394,15 @@ void laneUpdate(){
 
 void startupWipeWhiteQuick(){
   deckAll(C_OFF(deckA)); laneAll(C_OFF(laneA)); ledsShowAll();
-  int maxLen=LANE_LEN1;
-  if(LANE_LEN2>maxLen) maxLen=LANE_LEN2;
-  if(DECK_LEN1>maxLen) maxLen=DECK_LEN1;
-  if(DECK_LEN2>maxLen) maxLen=DECK_LEN2;
+  int maxLen=LANE_LED_LENGTH_L;
+  if(LANE_LED_LENGTH_R>maxLen) maxLen=LANE_LED_LENGTH_R;
+  if(DECK_LED_LENGTH_L>maxLen) maxLen=DECK_LED_LENGTH_L;
+  if(DECK_LED_LENGTH_R>maxLen) maxLen=DECK_LED_LENGTH_R;
   for(int i=0;i<maxLen;i++){
-    if(i<DECK_LEN1) deckA.setPixelColor(i,C_WHITE(deckA));
-    if(i<DECK_LEN2) deckB.setPixelColor(i,C_WHITE(deckB));
-    if(i<LANE_LEN1) laneA.setPixelColor(i,C_WHITE(laneA));
-    if(i<LANE_LEN2) laneB.setPixelColor(i,C_WHITE(laneB));
+    if(i<DECK_LED_LENGTH_L) deckA.setPixelColor(i,C_WHITE(deckA));
+    if(i<DECK_LED_LENGTH_R) deckB.setPixelColor(i,C_WHITE(deckB));
+    if(i<LANE_LED_LENGTH_L) laneA.setPixelColor(i,C_WHITE(laneA));
+    if(i<LANE_LED_LENGTH_R) laneB.setPixelColor(i,C_WHITE(laneB));
     ledsShowAll(); delay(STARTUP_WIPE_MS_PER_STEP);
   }
   frameLEDsFirstHalf();
@@ -1511,18 +1412,18 @@ void startupWipeWhiteQuick(){
 void updateFrameLEDs(){
   if (waitingForBall){
     if (throwCount == 1){
-      digitalWrite(FRAME_LED1, HIGH);
-      digitalWrite(FRAME_LED2, LOW);
+      digitalWrite(FRAME_LED1_PIN, HIGH);
+      digitalWrite(FRAME_LED2_PIN, LOW);
     } else {
-      digitalWrite(FRAME_LED1, HIGH);
-      digitalWrite(FRAME_LED2, HIGH);
+      digitalWrite(FRAME_LED1_PIN, HIGH);
+      digitalWrite(FRAME_LED2_PIN, HIGH);
     }
   }
 }
 
 void frameLEDsFirstHalf(){
-  digitalWrite(FRAME_LED1, HIGH);
-  digitalWrite(FRAME_LED2, LOW);
+  digitalWrite(FRAME_LED1_PIN, HIGH);
+  digitalWrite(FRAME_LED2_PIN, LOW);
 }
 
 // ======================= PAUSE MODE HELPERS (NEW) =======================
