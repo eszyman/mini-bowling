@@ -133,6 +133,8 @@ All notable changes to the Master Test Script will be documented in this file.
 ### Added
 - `pin_config.h` - Separate configuration file for all hardware pin assignments
 - `user_config.h` - Separate configuration file for all user-adjustable settings
+- `DECK_LED_BRIGHTNESS` — separate brightness setting for deck LEDs, independent of lane LED brightness
+- Optional `pin_config.user.h` and `user_config.user.h` overrides (git-ignored) for per-machine customization
 
 ### Changed
 - Renamed `FRAME_LED1` to `FRAME_LED1_PIN` for consistency with other pin definitions

@@ -425,8 +425,8 @@ void setup() {
   deckB.begin();
   laneA.begin();
   laneB.begin();
-  deckA.setBrightness(LED_BRIGHTNESS_NORMAL);
-  deckB.setBrightness(LED_BRIGHTNESS_NORMAL);
+  deckA.setBrightness(DECK_LED_BRIGHTNESS);
+  deckB.setBrightness(DECK_LED_BRIGHTNESS);
   laneA.setBrightness(LED_BRIGHTNESS_NORMAL);
   laneB.setBrightness(LED_BRIGHTNESS_NORMAL);
 
@@ -1487,7 +1487,7 @@ void handleDeckLEDMenu(String cmd) {
   }
   else if (cmd == "stop" || cmd == "x") {
     animMode = ANIM_IDLE;
-    deckSetBrightnessSelected(LED_BRIGHTNESS_NORMAL);
+    deckSetBrightnessSelected(DECK_LED_BRIGHTNESS);
     deckSetColor(currentDeckColor);
     deckShowSelected();
     Serial.println(F(">> Animation stopped"));
@@ -2981,7 +2981,7 @@ void updateLEDAnimation() {
         if (flashCycles >= FLASH_COUNT) {
           animMode = ANIM_IDLE;
           if (ledAnimTarget == LED_DECK) {
-            deckSetBrightnessSelected(LED_BRIGHTNESS_NORMAL);
+            deckSetBrightnessSelected(DECK_LED_BRIGHTNESS);
             deckSetColor(currentDeckColor);
             deckShowSelected();
           } else {

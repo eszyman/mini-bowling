@@ -1269,8 +1269,8 @@ void EmptyTurret() {
 // ======================= LED IMPL =======================
 void ledsBegin(){
   deckA.begin(); deckB.begin(); laneA.begin(); laneB.begin();
-  deckA.setBrightness(LED_BRIGHTNESS_NORMAL);
-  deckB.setBrightness(LED_BRIGHTNESS_NORMAL);
+  deckA.setBrightness(DECK_LED_BRIGHTNESS);
+  deckB.setBrightness(DECK_LED_BRIGHTNESS);
   laneA.setBrightness(LED_BRIGHTNESS_NORMAL);
   laneB.setBrightness(LED_BRIGHTNESS_NORMAL);
   laneMode=LANE_IDLE_WHITE;

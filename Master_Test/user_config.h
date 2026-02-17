@@ -30,8 +30,9 @@
 // =====================================================
 // LED BRIGHTNESS (0-255)
 // =====================================================
-#define LED_BRIGHTNESS_NORMAL  80 // DEFAULT: 80
-#define LED_BRIGHTNESS_STRIKE  40 // Reduced brightness during strike animation. DEFAULT: 40
+#define LED_BRIGHTNESS_NORMAL  80 // Lane LED brightness (0-255). DEFAULT: 80
+#define DECK_LED_BRIGHTNESS    80 // Deck LED brightness (0-255). DEFAULT: 80
+#define LED_BRIGHTNESS_STRIKE  40 // Reduced brightness during strike animation (0-255). DEFAULT: 40
 
 // =====================================================
 // SWEEP SERVO ANGLES
