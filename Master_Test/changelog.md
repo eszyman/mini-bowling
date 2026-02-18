@@ -54,6 +54,9 @@ All notable changes to the Master Test Script will be documented in this file.
 - **Homing improvement**: Hall sensor now checked during all homing phases including the initial prep move, preventing the turret from passing through the sensor without stopping
 
 ### Changed
+- Simplified raise servo config to match sweep servo pattern: define one angle, compute the mirror (R = 180 - L)
+  - Replaced `RAISE_UP_ANGLE_L`/`_R`, `RAISE_DOWN_ANGLE_L`/`_R`, `RAISE_GRAB_ANGLE_L`/`_R`, `RAISE_DROP_ANGLE_L`/`_R` with `RAISE_UP_ANGLE`, `RAISE_DOWN_ANGLE`, `RAISE_GRAB_ANGLE`, `RAISE_DROP_ANGLE`
+  - Right servo angle is now computed as `180 - ANGLE` in code, same as sweep servos
 - `monitorInputs()` now respects per-sensor enable/disable flags
 - Renamed script file to `Master_Test_v1.4.ino`
 - Renamed "Slider" to "Sliding Deck" in all user-facing text (menu titles, serial messages, status display)
@@ -71,7 +74,7 @@ All notable changes to the Master Test Script will be documented in this file.
 - `home (ho)` command added to all servo submenus for quick return to home/neutral position:
   - **Scissor menu**: Home sets to SCISSOR_DROP_ANGLE (open position)
   - **Slider menu**: Already had home command (SLIDER_HOME_ANGLE)
-  - **Raise menu**: Home sets to RAISE_UP_ANGLE_L/R (deck up position)
+  - **Raise menu**: Home sets to RAISE_UP_ANGLE (deck up position)
   - **Sweep menu**: Home sets to SWEEP_BACK_ANGLE (back of lane position)
   - **Ball Door menu**: Home sets to BALL_DOOR_CLOSED_ANGLE (closed position)
 - Home positions are configurable via `user_config.h`
@@ -130,7 +133,8 @@ All notable changes to the Master Test Script will be documented in this file.
 ### Added
 - `pin_config.h` - Separate configuration file for all hardware pin assignments
 - `user_config.h` - Separate configuration file for all user-adjustable settings
-- `user_config.h.dist` - A copy of the separate configuration file, above, with the original values.
+- `DECK_LED_BRIGHTNESS` — separate brightness setting for deck LEDs, independent of lane LED brightness
+- Optional `pin_config.user.h` and `user_config.user.h` overrides (git-ignored) for per-machine customization
 
 ### Changed
 - Renamed `FRAME_LED1` to `FRAME_LED1_PIN` for consistency with other pin definitions
