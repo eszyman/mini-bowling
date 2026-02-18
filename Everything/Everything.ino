@@ -1,6 +1,3 @@
-// VERSION 1.0 - original rev67 files by Danny Lum
-
-
 // =====================================================
 // Pinsetter Deck + Turret Controller
 // NeoPixels serial-safe
@@ -35,7 +32,7 @@
   #include "user_config.h"
 #endif
 
-// 
+// Current version, will be used by Scoremore to determine supported features
 #define VERSION "1.2.0"
 
 Adafruit_NeoPixel deckA(DECK_LED_LENGTH_L, DECK_PIN_A, NEO_GRB + NEO_KHZ800);
