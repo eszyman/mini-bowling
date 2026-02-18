@@ -1100,6 +1100,7 @@ void handleCommand(String cmd){
     } else {
       Serial.println("ACK_NO_PINSETTER_COMMAND_GIVEN");
     }
+    freeData(&strData);
   } else {Serial.println("ACK_UNKNOWN_COMMAND");Serial.print("DEBUG: unknow command:");Serial.println(cmd);}}
 
 void checkInputChanges(){
