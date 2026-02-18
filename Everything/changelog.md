@@ -19,6 +19,8 @@
 - Simplified raise servo config to match sweep servo pattern: define one angle, compute the mirror (R = 180 - L)
 - Fixed bug that was causing pins to be dropped while the deck was lowered
 - Fixed bug that was causing scoremore to loose communications to the Arduino
+- Fixed bug, enabled INPUT_PULLUP on BALL_SPEED_PIN
+- Cleaned mapping of pin assignments between Arduino and Scoremore, utilizing a struct now
 
 ## Version 1.0 (Rev67) - 2026-02-14
 
