@@ -1,11 +1,11 @@
 // =====================================================
 // USER CONFIGURATION - DEFAULT VALUES
 // This is the distribution template with factory defaults.
-// Copy to user_config.h and customize for your machine.
+// Copy to general_config.user.h and customize for your machine.
 // =====================================================
 
-#ifndef USER_CONFIG_H
-#define USER_CONFIG_H
+#ifndef GENERAL_CONFIG_H
+#define GENERAL_CONFIG_H
 
 // =====================================================
 // SCOREMORE SERIAL BAUD RATE
@@ -197,4 +197,4 @@
 // Frame LED blink interval
 #define FRAME_BLINK_INTERVAL    500   // DEFAULT: 500
 
-#endif // USER_CONFIG_H
+#endif // GENERAL_CONFIG_H

@@ -4,9 +4,9 @@
 
 ### Added
 - `pin_config.h` — hardware pin assignments extracted from inline defines, matching the test script pattern
-- `user_config.h` — all user-adjustable settings (servo angles, LED lengths, timing constants) extracted into a shared config file
+- `general_config.h` — all user-adjustable settings (servo angles, LED lengths, timing constants) extracted into a shared config file
 - `DECK_LED_BRIGHTNESS` — separate brightness setting for deck LEDs, independent of lane LED brightness
-- Optional `pin_config.user.h` and `user_config.user.h` overrides (git-ignored) for per-machine customization
+- Optional `pin_config.user.h` and `general_config.user.h` overrides (git-ignored) for per-machine customization
 - Added support for PINSETTER:RESET command from Scoremore
 - Added descriptions for currently unused Scoremore pins for completeness
 - Added support for reset button

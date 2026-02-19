@@ -26,10 +26,10 @@
 #else
   #include "pin_config.h"
 #endif
-#if __has_include("user_config.user.h")
-  #include "user_config.user.h"
+#if __has_include("general_config.user.h")
+  #include "general_config.user.h"
 #else
-  #include "user_config.h"
+  #include "general_config.h"
 #endif
 
 // Current version, will be used by Scoremore to determine supported features

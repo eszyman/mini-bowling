@@ -203,8 +203,8 @@ Long-running operations (homing, sweep clear, pin drop, turret load) use non-blo
 
 ### Configuration Files
 - `pin_config.h` - Hardware pin assignments (rarely changed)
-- `user_config.h` - Calibration values, servo angles, timing constants (frequently adjusted per machine)
-- `user_config.user.h` - Optional per-machine override (copy of user_config.h, git-ignored)
+- `general_config.h` - Calibration values, servo angles, timing constants (frequently adjusted per machine)
+- `general_config.user.h` - Optional per-machine override (copy of general_config.h, git-ignored)
 
 ## Test Script: Coding Conventions
 - Use `F()` macro for all `Serial.println` string literals (stores in flash, saves RAM)

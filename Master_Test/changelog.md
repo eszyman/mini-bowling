@@ -43,11 +43,11 @@ All notable changes to the Master Test Script will be documented in this file.
     - Persistent pin count tracking (`turretPinsLoaded`) survives sequence stop/restart
     - Resume from partial load: shows current count, asks user to confirm before continuing
   - **Global stop command** (`x` / `stop`): Stops any running sequence from any menu
-- **Pin drop timing constants** in `user_config.h`:
+- **Pin drop timing constants** in `general_config.h`:
   - `PDROP_SETTLE_MS` (500ms) — small servo settle time
   - `PDROP_RAISE_SETTLE_MS` (1300ms) — raise servo full-travel settle time
   - `PDROP_DROP_MS` (800ms) — pin drop dwell time
-- **Turret load timing constants** in `user_config.h`:
+- **Turret load timing constants** in `general_config.h`:
   - `TLOAD_CATCH_DELAY_MS` (800ms) — pause after catching pins 1-8
   - `TLOAD_RELEASE_DWELL_MS` (1000ms) — dwell at release position
   - `TLOAD_NINTH_SETTLE_MS` (300ms) — settle after 9th pin caught
@@ -77,13 +77,13 @@ All notable changes to the Master Test Script will be documented in this file.
   - **Raise menu**: Home sets to RAISE_UP_ANGLE (deck up position)
   - **Sweep menu**: Home sets to SWEEP_BACK_ANGLE (back of lane position)
   - **Ball Door menu**: Home sets to BALL_DOOR_CLOSED_ANGLE (closed position)
-- Home positions are configurable via `user_config.h`
+- Home positions are configurable via `general_config.h`
 - Sweep servo tweening for smooth movement between positions (like production script)
 - Independent LED strip lengths for left and right sides:
   - `DECK_LED_LENGTH_L` / `DECK_LED_LENGTH_R` for deck strips
   - `LANE_LED_LENGTH_L` / `LANE_LED_LENGTH_R` for lane strips
   - All LED functions and animations updated to handle different lengths
-  - Uses `SWEEP_TWEEN_MS` from `user_config.h` (default: 500ms)
+  - Uses `SWEEP_TWEEN_MS` from `general_config.h` (default: 500ms)
   - Sweep status now shows "(moving...)" when tween is in progress
 - `disengage (de)` command added to all servo and turret menus:
   - Detaches servos so they can be moved manually without resistance
@@ -93,7 +93,7 @@ All notable changes to the Master Test Script will be documented in this file.
 - Optional `STEPPER_ENABLE_PIN` support in `pin_config.h` for turret stepper driver
 
 ### Changed
-- Menu displays now show dynamic angle values from `user_config.h` instead of hardcoded values
+- Menu displays now show dynamic angle values from `general_config.h` instead of hardcoded values
   - Scissor, Slider, Raise, Sweep, and Ball Door menus all updated
   - Angle values in help text now reflect actual configured values
 - Renamed script file to `Master_Test_v1.3.ino`
@@ -132,9 +132,9 @@ All notable changes to the Master Test Script will be documented in this file.
 
 ### Added
 - `pin_config.h` - Separate configuration file for all hardware pin assignments
-- `user_config.h` - Separate configuration file for all user-adjustable settings
+- `general_config.h` - Separate configuration file for all user-adjustable settings
 - `DECK_LED_BRIGHTNESS` — separate brightness setting for deck LEDs, independent of lane LED brightness
-- Optional `pin_config.user.h` and `user_config.user.h` overrides (git-ignored) for per-machine customization
+- Optional `pin_config.user.h` and `general_config.user.h` overrides (git-ignored) for per-machine customization
 
 ### Changed
 - Renamed `FRAME_LED1` to `FRAME_LED1_PIN` for consistency with other pin definitions
@@ -144,18 +144,18 @@ All notable changes to the Master Test Script will be documented in this file.
 - Renamed `HALL_EFFECT` to `HALL_EFFECT_PIN` for consistency
 - Renamed `DECK_LENGTH` to `DECK_LED_LENGTH` for clarity
 - Renamed `LANE_LENGTH` to `LANE_LED_LENGTH` for clarity
-- Moved all hardcoded servo angles to `user_config.h`:
+- Moved all hardcoded servo angles to `general_config.h`:
   - Sweep servo angles (Guard, Up, Back positions)
   - Ball door angles (Open, Closed)
   - Scissor angles (Grab, Drop)
   - Slider angles (Home, Release)
   - Raise servo angles (Up, Down, Grab, Drop for both L/R)
-- Moved turret configuration to `user_config.h`:
+- Moved turret configuration to `general_config.h`:
   - Speed and acceleration settings
   - Home adjuster value
   - Pin positions array values
   - Pin 10 release offset
-- Moved LED and timing configuration to `user_config.h`:
+- Moved LED and timing configuration to `general_config.h`:
   - LED brightness
   - Animation timing values
   - Debounce timing
