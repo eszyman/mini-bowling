@@ -1,10 +1,6 @@
 # Everything Script - Changelog
 
-## Version 1.2.0 - 2026-02-18
-
-### Changed
-- Renamed LED strip pin defines from A/B to L/R (`DECK_PIN_A`→`DECK_PIN_L`, `DECK_PIN_B`→`DECK_PIN_R`, `LANE_PIN_A`→`LANE_PIN_L`, `LANE_PIN_B`→`LANE_PIN_R`) for consistency with config values that already use L/R naming
-- Renamed NeoPixel objects from A/B to L/R (`deckA`→`deckL`, `deckB`→`deckR`, `laneA`→`laneL`, `laneB`→`laneR`)
+## Version 1.2.0 - 2026-02-19
 
 ### Added
 - `pin_config.h` — hardware pin assignments extracted from inline defines, matching the test script pattern
@@ -25,6 +21,8 @@
 - Fixed bug that was causing scoremore to loose communications to the Arduino
 - Fixed bug, enabled INPUT_PULLUP on BALL_SPEED_PIN
 - Cleaned mapping of pin assignments between Arduino and Scoremore, utilizing a struct now
+- Renamed LED strip pin defines from A/B to L/R (`DECK_PIN_A`→`DECK_PIN_L`, `DECK_PIN_B`→`DECK_PIN_R`, `LANE_PIN_A`→`LANE_PIN_L`, `LANE_PIN_B`→`LANE_PIN_R`) for consistency with config values that already use L/R naming
+- Renamed NeoPixel objects from A/B to L/R (`deckA`→`deckL`, `deckB`→`deckR`, `laneA`→`laneL`, `laneB`→`laneR`)
 
 ## Version 1.0 (Rev67) - 2026-02-14
 
