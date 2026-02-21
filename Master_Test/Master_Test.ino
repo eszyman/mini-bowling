@@ -6,6 +6,7 @@
 // All inputs (sensors) are continuously monitored
 // =====================================================
 
+
 #include <Adafruit_NeoPixel.h>
 #include <Servo.h>
 #include <AccelStepper.h>
@@ -136,6 +137,7 @@ long turretTargetPos = 0;
 // Homing state machine
 enum HomingPhase {
   HOME_IDLE = 0,
+  HOME_CHECK_INITIAL_SENSOR,   // Sensor was triggered at start - nudge CW to verify position
   HOME_PREP_MOVE_TO_SLOT1,
   HOME_ADVANCE_TO_SWITCH,
   HOME_BACKOFF,
@@ -195,9 +197,7 @@ enum TurretLoadPhase {
   TLOAD_HOMING,
   TLOAD_MOVE_TO_SLOT1,
   TLOAD_WAIT_CATCH,
-  TLOAD_CATCH_DELAY,
   TLOAD_ADVANCING,
-  TLOAD_NINTH_SETTLE,
   TLOAD_WAIT_TENTH,
   TLOAD_MOVE_RELEASE,
   TLOAD_RELEASE_DWELL,
@@ -500,6 +500,7 @@ void loop() {
       processCommand(input);
     }
   }
+
 }
 
 // =====================================================
@@ -2019,10 +2020,19 @@ void turretMoveRelative(long steps) {
 void startTurretHome() {
   Serial.println(F(">> Starting homing sequence..."));
   homingActive = true;
-  homingPhase = HOME_PREP_MOVE_TO_SLOT1;
   stepper.setAcceleration(3000);
   stepper.setMaxSpeed(500);
-  turretGoTo(PinPositions[1]);
+
+  if (digitalRead(HALL_EFFECT_PIN) == LOW) {
+    // Sensor already triggered - nudge CW to determine if we're at the correct home
+    // position or at the CCW physical stop (which also engages the sensor)
+    Serial.println(F("   Hall sensor active at start - nudging CW to verify position..."));
+    homingPhase = HOME_CHECK_INITIAL_SENSOR;
+    turretGoTo(stepper.currentPosition() + 100);
+  } else {
+    homingPhase = HOME_PREP_MOVE_TO_SLOT1;
+    turretGoTo(PinPositions[1]);
+  }
 }
 
 void runHomingFSM() {
@@ -2031,6 +2041,24 @@ void runHomingFSM() {
   int hallState = digitalRead(HALL_EFFECT_PIN);
 
   switch (homingPhase) {
+    case HOME_CHECK_INITIAL_SENSOR:
+      if (hallState == HIGH) {
+        // Sensor disengaged during CW nudge - turret was at CCW physical stop, not home.
+        // Stop and continue CW all the way around to find home from the correct direction.
+        stepper.stop();
+        stepper.setCurrentPosition(stepper.currentPosition());
+        turretMoving = false;
+        Serial.println(F("   Sensor cleared - turret was at CCW stop. Advancing CW to find home..."));
+        homingPhase = HOME_ADVANCE_TO_SWITCH;
+        turretGoTo(stepper.currentPosition() + 3000); // Large move; FSM stops on sensor detect
+      } else if (stepper.distanceToGo() == 0) {
+        // Full nudge done, sensor still active - at correct home position, back off and creep
+        Serial.println(F("   Sensor still active - backing off to find precise edge..."));
+        homingPhase = HOME_BACKOFF;
+        turretGoTo(stepper.currentPosition() - 150);
+      }
+      break;
+
     case HOME_PREP_MOVE_TO_SLOT1:
       if (hallState == LOW) {
         // Hall sensor triggered during prep move - stop and back off
@@ -2432,7 +2460,7 @@ void startTurretLoad() {
   turretLoadActive = true;
   turretLoadPhase = TLOAD_HOMING;
   tlLoadedCount = turretPinsLoaded;
-  tlNowCatching = (turretPinsLoaded < 9) ? turretPinsLoaded + 1 : 9;
+  tlNowCatching = (turretPinsLoaded < 1) ? 1 : min(turretPinsLoaded, 9);
   tlQueuedPins = 0;
 
   Serial.println(F(""));
@@ -2443,6 +2471,21 @@ void startTurretLoad() {
   } else {
     Serial.println(F(">> Starting turret load sequence..."));
   }
+  // Raise deck up so pins fall correctly from the turret onto the sliding deck
+  Serial.println(F("   Raising deck to up position..."));
+  ensureRaiseAttached();
+  LeftRaiseServo.write(RAISE_UP_ANGLE);
+  RightRaiseServo.write(180 - RAISE_UP_ANGLE);
+  raiseLeftPos = RAISE_UP_ANGLE;
+  raiseRightPos = 180 - RAISE_UP_ANGLE;
+
+  // Ensure sliding deck is in home/catch position to receive pins from the turret
+  Serial.println(F("   Sliding deck to home/catch position..."));
+  ensureSliderAttached();
+  SlideServo.write(SLIDER_HOME_ANGLE);
+  sliderAngle = SLIDER_HOME_ANGLE;
+
+  // Homing runs non-blocking - deck will be fully settled long before it completes
   Serial.println(F("   Phase: Homing turret"));
   ConveyorOff();
   conveyorIsOn = false;
@@ -2490,23 +2533,22 @@ void runTurretLoadFSM() {
         Serial.print(F("   At slot "));
         Serial.print(tlNowCatching);
         Serial.println(F(". Starting pin loading..."));
-        // Initialize IR state
+        // Initialize IR state - arm so a pre-blocked sensor is detected immediately
         tlIrLastRaw = digitalRead(IR_SENSOR_PIN);
         tlIrStable = tlIrLastRaw;
         tlIrLastChange = now;
-        tlPinArmed = true;  // Always arm - if pin already blocking, detect immediately
+        tlPinArmed = true;
         // Start conveyor
         ConveyorOn();
         conveyorIsOn = true;
         Serial.println(F("   Conveyor ON - Feed pins into turret"));
         if (tlLoadedCount >= 9) {
-          // Already have 9 pins, just need the 10th
           Serial.println(F("   9 pins already loaded. Waiting for 10th pin..."));
           tlQueuedPins = 0;
           turretLoadPhase = TLOAD_WAIT_TENTH;
         } else {
-          Serial.print(F("   Waiting for pin at slot "));
-          Serial.println(tlNowCatching);
+          Serial.print(F("   Waiting for pin "));
+          Serial.println(tlLoadedCount + 1);
           turretLoadPhase = TLOAD_WAIT_CATCH;
         }
       }
@@ -2517,25 +2559,13 @@ void runTurretLoadFSM() {
         tlQueuedPins--;
         tlLoadedCount++;
         turretPinsLoaded = tlLoadedCount;
-        Serial.print(F("   Pin caught! ("));
+        Serial.print(F("   Pin detected ("));
         Serial.print(tlLoadedCount);
         Serial.println(F("/9)"));
-
-        if (tlLoadedCount < 9) {
-          tlPhaseStartMs = now;
-          turretLoadPhase = TLOAD_CATCH_DELAY;
-        } else {
-          tlPhaseStartMs = now;
-          turretLoadPhase = TLOAD_NINTH_SETTLE;
-        }
-      }
-      break;
-
-    case TLOAD_CATCH_DELAY:
-      if (now - tlPhaseStartMs >= CATCH_DELAY_MS) {
-        tlNowCatching++;
-        Serial.print(F("   Advancing to slot "));
-        Serial.println(tlNowCatching);
+        // Advance the turret to the slot for this pin number.
+        // For pin 1 this is a no-op (already at slot 1); for pins 2-9 this moves to the new slot.
+        // The turret reaches the slot by the time the pin travels from the sensor to the drop point.
+        tlNowCatching = tlLoadedCount;
         stepper.setMaxSpeed(TURRET_NORMAL_MAXSPEED);
         stepper.setAcceleration(TURRET_NORMAL_ACCEL);
         turretGoTo(PinPositions[tlNowCatching]);
@@ -2545,18 +2575,17 @@ void runTurretLoadFSM() {
 
     case TLOAD_ADVANCING:
       if (!turretMoving) {
-        Serial.print(F("   Waiting for pin at slot "));
-        Serial.println(tlNowCatching);
-        turretLoadPhase = TLOAD_WAIT_CATCH;
-      }
-      break;
-
-    case TLOAD_NINTH_SETTLE:
-      if (now - tlPhaseStartMs >= NINTH_SETTLE_MS) {
-        Serial.println(F("   9 pins loaded. Waiting for 10th pin..."));
-        tlQueuedPins = 0;
-        tlPinArmed = true;  // Re-arm: if pin already blocking sensor, detect immediately
-        turretLoadPhase = TLOAD_WAIT_TENTH;
+        if (tlLoadedCount >= 9) {
+          Serial.println(F("   9 pins loaded. Waiting for 10th pin..."));
+          tlPinArmed = true;  // re-arm: handles 10th pin already at sensor
+          turretLoadPhase = TLOAD_WAIT_TENTH;
+        } else {
+          Serial.print(F("   Slot "));
+          Serial.print(tlNowCatching);
+          Serial.print(F(" ready. Waiting for pin "));
+          Serial.println(tlLoadedCount + 1);
+          turretLoadPhase = TLOAD_WAIT_CATCH;
+        }
       }
       break;
 
@@ -2590,6 +2619,12 @@ void runTurretLoadFSM() {
       break;
 
     case TLOAD_RELEASE_DWELL:
+      // Stop conveyor after assist window - gives the 10th pin time to travel
+      // from the IR sensor to the drop point, then cuts off before extras arrive
+      if (conveyorIsOn && (now - tlPhaseStartMs >= RELEASE_FEED_ASSIST_MS)) {
+        ConveyorOff();
+        conveyorIsOn = false;
+      }
       if (now - tlPhaseStartMs >= RELEASE_DWELL_MS) {
         turretPinsLoaded = 0;  // Pins released to deck
         Serial.println(F("   Release complete. Re-homing turret..."));
