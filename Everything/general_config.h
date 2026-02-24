@@ -5,11 +5,15 @@
 // =====================================================
 
 // =====================================================
-// SCOREMORE SERIAL BAUD RATE
+// SCOREMORE SERIAL BAUD RATE & CONFIG
 // =====================================================
 #ifndef SCOREMORE_BAUD
 #define SCOREMORE_BAUD      9600  // DEFAULT: 9600
 #endif
+#ifndef SCOREMORE_USER
+#define SCOREMORE_USER      0     // DEFAULT: 0, 1 Yes
+#endif
+
 
 // =====================================================
 // LED STRIP LENGTHS
