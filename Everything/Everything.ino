@@ -261,6 +261,24 @@ unsigned long conesFullHoldStartMs=0;
 bool postSetResumeDelayActive = false;
 unsigned long postSetResumeStart = 0;
 
+// ---- PAUSE FOR SCOREMORE IF SCOREMORE_USER = 1 ----
+bool waitForScoreMore(){
+  unsigned long start = millis();
+
+  Serial.println("WAITING_FOR_SCOREMORE");
+
+  while (true) {
+    if (Serial && Serial.available() > 0) {
+      Serial.println("SCOREMORE_CONNECTED");
+      return true;
+    }
+
+    // LED's only - no motion from servo's
+    laneUpdate();
+    delay(5);
+  }
+}
+
 // ======================= SETUP =======================
 void setup(){
   ledsBegin();
@@ -271,7 +289,16 @@ void setup(){
   digitalWrite(FRAME_LED1_PIN, LOW);
   digitalWrite(FRAME_LED2_PIN, HIGH);  //indicate to the user that we're in setup
 
-  Serial.begin(SCOREMORE_BAUD); delay(1000); Serial.println("READY");
+// =========== WAIT FOR SCOREMORE =================  
+  Serial.begin(SCOREMORE_BAUD); delay(1000);
+
+  #if SCOREMORE_USER == 1
+    waitForScoreMore();   // Blocks BEFORE any servo attaches
+  #endif
+
+  Serial.println("READY");
+
+
   digitalWrite(FRAME_LED2_PIN, LOW);
 
   pinMode(BALL_SENSOR_PIN, INPUT_PULLUP);
