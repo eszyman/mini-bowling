@@ -127,7 +127,7 @@
 #define SM_PIN_8            17
 #endif
 #ifndef SM_PIN_9
-#define SM_PIN_9            18
+#define SM_PIN_9            21  //pin 18 reserved for serial1 coms.
 #endif
 #ifndef SM_PIN_10
 #define SM_PIN_10           19
