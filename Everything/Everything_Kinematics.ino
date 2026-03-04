@@ -487,6 +487,40 @@ private:
     int _pin, _ballPrev; bool _ballPending, _ballRearmed; unsigned long _ballLowStartUs, _lastBallHighMs;
 };
 
+// ==========================================
+// 7. WLED CONTROLLER (Fire & Forget JSON API)
+// Configurable Hardware Serial implementation.
+// Recommended wiring: Mega TX1 (Pin 18) -> ESP8266 RX
+// Preset definitions are located in general_config.h
+// ==========================================
+class WledController {
+public:
+    WledController(HardwareSerial& serialPort) : _serial(serialPort) {}
+
+    void begin() {
+        _serial.begin(115200);
+        tPrint("WLED Controller Initialized.");
+    }
+
+    void triggerPreset(int presetId) {
+        _serial.print("{\"ps\":");
+        _serial.print(presetId);
+        _serial.println("}");
+        
+        tPrint("WLED: Fired Preset " + String(presetId));
+    }
+    
+    void setPower(bool on) {
+        if (on) {
+            _serial.println("{\"on\":true}");
+        } else {
+            _serial.println("{\"on\":false}");
+        }
+    }
+
+private:
+    HardwareSerial& _serial; 
+};
 
 // ==========================================
 // CONTROLLER INSTANTIATIONS
@@ -497,6 +531,7 @@ DeckController Deck(LeftRaiseServo, RightRaiseServo, SlideServo, ScissorsServo);
 BallReturnController Door(BallReturnServo, MOTOR_RELAY_PIN);
 BallSensorController BallSensor(BALL_SENSOR_PIN);
 ButtonController ResetBtn(PINSETTER_RESET_PIN);
+WledController Wled; 
 
 
 // ==========================================
@@ -606,7 +641,7 @@ public:
         // =======================================================
         switch (_state) {
             case BOOT_INIT:
-                if (Sweep.isIdle() && Deck.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_1_GUARD); tPrint("Boot: Step 1 - Initial Sweep Guard"); }
+                if (Sweep.isIdle() && Deck.isIdle()) { Sweep.commandPose(SweepController::GUARD); Wled.triggerPreset(WLED_PRESET_BOOTING); changeState(BOOT_SWEEP_1_GUARD); tPrint("Boot: Step 1 - Initial Sweep Guard"); }
                 break;
             case BOOT_SWEEP_1_GUARD:
                 if (Sweep.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_1_BACK); tPrint("Boot: Step 2 - Sweep Back"); }
@@ -683,6 +718,7 @@ public:
                     Turret.commandStartRefill();
                     _throwCount = 1; 
                     changeState(WAITING_FOR_BALL); 
+                    Wled.triggerPreset(WLED_PRESET_NORMAL);
                     tPrint("Boot Complete: Ready for Throw 1."); 
                 }
                 break;
@@ -863,6 +899,7 @@ public:
         if (_opMode != MODE_NORMAL) return;
         _opMode = MODE_MAINT_ENTERING;
         _maintState = MAINT_START;
+        Wled.triggerPreset(WLED_PRESET_MAINTENANCE);
         tPrint("Long Press: Entering Maintenance Mode...");
     }
 
@@ -921,8 +958,9 @@ void setup() {
     SlideServo.attach(SLIDE_PIN); ScissorsServo.attach(SCISSOR_PIN);
     LeftSweepServo.attach(LEFT_SWEEP_PIN); RightSweepServo.attach(RIGHT_SWEEP_PIN);
     BallReturnServo.attach(BALL_RETURN_PIN);
-    
-    Sweep.begin(); Deck.begin(); Turret.begin(); Door.begin(); BallSensor.begin(); ResetBtn.begin();
+  
+    Sweep.begin(); Deck.begin(); Turret.begin(); Door.begin(); BallSensor.begin(); ResetBtn.begin(); Wled.begin();
+    Wled.triggerPreset(4); // Start the boot animation
     
     tPrint("Automated Kinematics Booted. Starting Dance.");
 }
