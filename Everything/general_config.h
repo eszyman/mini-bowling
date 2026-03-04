@@ -33,6 +33,34 @@
 #endif
 
 // =====================================================
+// WLED PRESET MAPPING CONFIGURATION
+// Map these to the preset IDs saved in your WLED UI
+// =====================================================
+#ifndef WLED_PRESET_NORMAL
+#define WLED_PRESET_NORMAL      1   // Normal mode (waiting for throw)
+#endif
+
+#ifndef WLED_PRESET_BOOTING
+#define WLED_PRESET_BOOTING     2   // Booting / Reset sequence
+#endif
+
+#ifndef WLED_PRESET_MAINTENANCE
+#define WLED_PRESET_MAINTENANCE 3   // Maintenance Mode / E-Stop
+#endif
+
+#ifndef WLED_PRESET_STRIKE
+#define WLED_PRESET_STRIKE      4   // Strike (ScoreMore required)
+#endif
+
+#ifndef WLED_PRESET_SPARE
+#define WLED_PRESET_SPARE       5   // Spare (ScoreMore required)
+#endif
+
+#ifndef WLED_PRESET_PAUSE
+#define WLED_PRESET_PAUSE       6   // Pause / Sleep Mode
+#endif
+
+// =====================================================
 // CONVEYOR SETTINGS
 // =====================================================
 // Set to 1 if relay is active HIGH, 0 if active LOW.
