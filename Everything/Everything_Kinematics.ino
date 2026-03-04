@@ -28,12 +28,15 @@ void tPrint(const String& msg) {
 }
 
 // ==========================================
-// 1. BUTTON CONTROLLER (Debounce & Long Press)
+// 1. BUTTON CONTROLLER (Non-Blocking Debounce)
 // ==========================================
 class ButtonController {
 public:
     enum Event { NONE, SHORT_PRESS, LONG_PRESS };
-    ButtonController(int pin) : _pin(pin), _state(HIGH), _lastState(HIGH), _pressTime(0), _longPressFired(false) {}
+    
+    ButtonController(int pin) : _pin(pin), _buttonState(HIGH), _lastFlickerState(HIGH), 
+                                _lastDebounceTime(0), _pressStartTime(0), 
+                                _isPressed(false), _longPressFired(false) {}
     
     void begin() { pinMode(_pin, INPUT_PULLUP); }
     
@@ -41,31 +44,44 @@ public:
         int reading = digitalRead(_pin);
         Event e = NONE;
         
-        if (reading != _lastState) {
-            delay(20); // Quick mechanical debounce
-            reading = digitalRead(_pin);
-            if (reading == LOW) { 
-                _pressTime = millis();
-                _longPressFired = false;
-            } else { 
-                if (!_longPressFired && (millis() - _pressTime > 50) && (millis() - _pressTime < 1000)) {
-                    e = SHORT_PRESS;
+        // Reset the debounce timer if the physical switch flickers
+        if (reading != _lastFlickerState) {
+            _lastDebounceTime = millis();
+        }
+        
+        // If the reading has been stable longer than 20ms debounce window
+        if ((millis() - _lastDebounceTime) > 20) {
+            if (reading != _buttonState) {
+                _buttonState = reading;
+                
+                if (_buttonState == LOW) {
+                    // Button just went down
+                    _isPressed = true;
+                    _pressStartTime = millis();
+                    _longPressFired = false;
+                } else {
+                    // Button just came up
+                    _isPressed = false;
+                    if (!_longPressFired && (millis() - _pressStartTime > 50)) {
+                        e = SHORT_PRESS; // It was a valid short press
+                    }
                 }
             }
         }
         
-        if (reading == LOW && !_longPressFired && (millis() - _pressTime >= 1000)) {
+        // Check for long press while the button is still held down
+        if (_isPressed && !_longPressFired && (millis() - _pressStartTime >= 1000)) {
             _longPressFired = true;
             e = LONG_PRESS;
         }
         
-        _lastState = reading;
+        _lastFlickerState = reading;
         return e;
     }
 private:
-    int _pin, _state, _lastState;
-    unsigned long _pressTime;
-    bool _longPressFired;
+    int _pin, _buttonState, _lastFlickerState;
+    unsigned long _lastDebounceTime, _pressStartTime;
+    bool _isPressed, _longPressFired;
 };
 
 // ==========================================
@@ -827,7 +843,13 @@ public:
     }
     
     void triggerLaneReset() {
-        if (_opMode != MODE_NORMAL || _state == BOOT_INIT) return;
+        // THE FIX: Strict locking. 
+        // Cannot be mashed, cannot cause mid-cycle orphan pins.
+        if (_opMode != MODE_NORMAL || _state != WAITING_FOR_BALL) {
+            tPrint("Short Press Ignored: System is actively cycling or not in Normal Mode.");
+            return;
+        }
+        
         updateActivity();
         
         // Treat as a full frame abort. Sweep the lane, jump straight to the Setting sequence.
