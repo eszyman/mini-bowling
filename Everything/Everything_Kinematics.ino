@@ -17,15 +17,17 @@
   #include "general_config.h"
 #endif
 
+#if DEBUG_TURRET
+  #define tPrint(x) Serial.println(String("TURRET: ") + x)
+#else
+  #define tPrint(x) 
+#endif
+
 // ==========================================
 // GLOBAL HARDWARE & TELEMETRY
 // ==========================================
 Servo LeftRaiseServo, RightRaiseServo, SlideServo, ScissorsServo, LeftSweepServo, RightSweepServo, BallReturnServo;
 AccelStepper stepper1(1, STEP_PIN, DIR_PIN);
-
-void tPrint(const String& msg) {
-    Serial.print("["); Serial.print(millis()); Serial.print(" ms] "); Serial.println(msg);
-}
 
 // ==========================================
 // 1. BUTTON CONTROLLER (Non-Blocking Debounce)
@@ -44,32 +46,26 @@ public:
         int reading = digitalRead(_pin);
         Event e = NONE;
         
-        // Reset the debounce timer if the physical switch flickers
         if (reading != _lastFlickerState) {
             _lastDebounceTime = millis();
         }
         
-        // If the reading has been stable longer than 20ms debounce window
         if ((millis() - _lastDebounceTime) > 20) {
             if (reading != _buttonState) {
                 _buttonState = reading;
-                
                 if (_buttonState == LOW) {
-                    // Button just went down
                     _isPressed = true;
                     _pressStartTime = millis();
                     _longPressFired = false;
                 } else {
-                    // Button just came up
                     _isPressed = false;
                     if (!_longPressFired && (millis() - _pressStartTime > 50)) {
-                        e = SHORT_PRESS; // It was a valid short press
+                        e = SHORT_PRESS; 
                     }
                 }
             }
         }
         
-        // Check for long press while the button is still held down
         if (_isPressed && !_longPressFired && (millis() - _pressStartTime >= 1000)) {
             _longPressFired = true;
             e = LONG_PRESS;
@@ -85,7 +81,7 @@ private:
 };
 
 // ==========================================
-// 2. TURRET CONTROLLER FSM
+// 2. TURRET CONTROLLER FSM (RESTORED DEBUGS)
 // ==========================================
 class TurretController {
 public:
@@ -99,7 +95,7 @@ public:
         MOVING_TO_DROP, DWELLING_AT_DROP, 
         MOVING_TO_PURGE,
         SLEEP_STARVED_WAIT, SLEEP_STARVED_FETCH,
-        HALTED // NEW: Maintenance Mode Halt
+        HALTED 
     };
 
     TurretController(AccelStepper& stp, int ir, int hall, int relay, int enablePin)
@@ -114,11 +110,12 @@ public:
         conveyorOff();
         _stepper.setMaxSpeed(TURRET_NORMAL_MAXSPEED); _stepper.setAcceleration(TURRET_NORMAL_ACCEL);
         _irStableState = HIGH; _irLastRead = HIGH;
+        tPrint("Booting: Entering UNHOMED state.");
         changeState(UNHOMED);
     }
 
     void update() {
-        if (_state == HALTED) return; // Completely ignores everything in Maintenance Mode
+        if (_state == HALTED) return; 
         
         _stepper.run();
         updateIRSensor(); 
@@ -140,7 +137,13 @@ public:
             case HOMING_BACKOFF: if (_stepper.distanceToGo() == 0) { _stepper.move(-150); _stepper.setMaxSpeed(100); changeState(HOMING_CREEP); } break;
             case HOMING_CREEP:
                 if (_stepper.distanceToGo() == 0) {
-                    if (digitalRead(_hallPin) == LOW) { _stepper.setCurrentPosition(TURRET_HOME_ADJUSTER); _stepper.setMaxSpeed(TURRET_NORMAL_MAXSPEED); _loadedCount = 0; _queuedPins = 0; changeState(IDLE_EMPTY); }
+                    if (digitalRead(_hallPin) == LOW) { 
+                        _stepper.setCurrentPosition(TURRET_HOME_ADJUSTER); 
+                        _stepper.setMaxSpeed(TURRET_NORMAL_MAXSPEED); 
+                        _loadedCount = 0; _queuedPins = 0; 
+                        tPrint("Homing Complete. Entering IDLE_EMPTY.");
+                        changeState(IDLE_EMPTY); 
+                    }
                     else { _stepper.move(2); } 
                 }
                 break;
@@ -153,12 +156,14 @@ public:
                 conveyorOn(); 
                 if (millis() - _lastPinDetectTime > NO_CATCH_TIMEOUT_MS) {
                     conveyorOff();
+                    tPrint("Starved Timeout Reached. Sleeping.");
                     changeState(SLEEP_STARVED_WAIT);
                     break;
                 }
                 if (_queuedPins > 0) {
                     _queuedPins--; 
                     _loadedCount++; 
+                    tPrint("Caught Pin " + String(_loadedCount) + ". Queued remaining: " + String(_queuedPins));
                     changeState(CATCH_DELAY_PHASE, CATCH_DELAY_MS); 
                 }
                 break;
@@ -168,8 +173,16 @@ public:
             case CATCH_DELAY_PHASE:
                 conveyorOn();
                 if (elapsed >= _timeout) {
-                    if (_loadedCount == 9) { changeState(PAUSED_AT_9); } 
-                    else { _targetPos = getPositionForSlot(_loadedCount + 1); _stepper.moveTo(_targetPos); changeState(INDEXING_TO_NEXT); }
+                    if (_loadedCount == 9) { 
+                        tPrint("9 Pins Loaded. Hard Locking Turret.");
+                        changeState(PAUSED_AT_9); 
+                    } 
+                    else { 
+                        _targetPos = getPositionForSlot(_loadedCount + 1); 
+                        _stepper.moveTo(_targetPos); 
+                        tPrint("Indexing to slot " + String(_loadedCount + 1));
+                        changeState(INDEXING_TO_NEXT); 
+                    }
                 }
                 break;
 
@@ -184,12 +197,14 @@ public:
                 conveyorOn(); 
                 if (millis() - _lastPinDetectTime > NO_CATCH_TIMEOUT_MS) {
                     conveyorOff();
+                    tPrint("10th Pin Starved. Sleeping.");
                     changeState(SLEEP_STARVED_FETCH);
                     break;
                 }
                 if (_queuedPins > 0) {
                     _queuedPins--; 
                     _loadedCount = 10;
+                    tPrint("10th Pin Sensed! Pushing and Moving to Drop...");
                     _stepper.setMaxSpeed(TURRET_SPRING_MAXSPEED);
                     _stepper.setAcceleration(TURRET_SPRING_ACCEL);
                     _targetPos = getPositionForSlot(10) + TURRET_PIN10_RELEASE_OFFSET;
@@ -212,6 +227,7 @@ public:
             case DWELLING_AT_DROP:
                 if (elapsed < RELEASE_FEED_ASSIST_MS) { conveyorOn(); } else { conveyorOff(); }
                 if (elapsed >= _timeout) {
+                    tPrint("Drop Complete. Escaping Blindly.");
                     _dropComplete = true; 
                     _stepper.setMaxSpeed(TURRET_NORMAL_MAXSPEED);
                     _stepper.move(800); 
@@ -230,25 +246,45 @@ public:
 
     bool commandStartRefill() {
         if (_state != IDLE_EMPTY) return false;
-        _dropComplete = false; _loadedCount = 0; _queuedPins = 0; _lastPinDetectTime = millis(); 
+        tPrint("Command: Start Refill");
+        _dropComplete = false; _loadedCount = 0; _queuedPins = 0;         
+        // FIX: Set the timer into the past so the lockout is NOT active upon starting.
+        _lastPinDetectTime = millis() - IR_PIN_LOCKOUT_MS - 1;         
         _targetPos = getPositionForSlot(1); _stepper.moveTo(_targetPos); changeState(INDEXING_TO_NEXT); 
         return true;
     }
 
     bool commandExecuteDropSequence() {
         if (_state != PAUSED_AT_9) return false;
-        _dropComplete = false; _lastPinDetectTime = millis(); changeState(FETCH_10TH);
+        tPrint("Command: Execute Drop Sequence (Waiting on 10th Pin)");
+        _dropComplete = false;         
+        // FIX: Remove blind spot
+        _lastPinDetectTime = millis() - IR_PIN_LOCKOUT_MS - 1;        
+        changeState(FETCH_10TH);
         return true;
     }
 
     bool commandWake() {
-        if (_state == SLEEP_STARVED_WAIT) { _lastPinDetectTime = millis(); changeState(WAITING_FOR_PIN); return true; } 
-        else if (_state == SLEEP_STARVED_FETCH) { _lastPinDetectTime = millis(); changeState(FETCH_10TH); return true; }
+        if (_state == SLEEP_STARVED_WAIT) { 
+            tPrint("Waking up to WAITING_FOR_PIN"); 
+            // FIX: Remove blind spot
+            _lastPinDetectTime = millis() - IR_PIN_LOCKOUT_MS - 1; 
+            changeState(WAITING_FOR_PIN); 
+            return true; 
+        } 
+        else if (_state == SLEEP_STARVED_FETCH) { 
+            tPrint("Waking up to FETCH_10TH"); 
+            // FIX: Remove blind spot
+            _lastPinDetectTime = millis() - IR_PIN_LOCKOUT_MS - 1; 
+            changeState(FETCH_10TH); 
+            return true; 
+        }
         return false; 
     }
 
     bool commandPurge() {
         if (_state != IDLE_EMPTY) return false;
+        tPrint("Command: Purge Turret");
         _dropComplete = false; _stepper.setMaxSpeed(TURRET_SPRING_MAXSPEED); _stepper.setAcceleration(TURRET_SPRING_ACCEL);
         _targetPos = getPositionForSlot(10) + TURRET_PIN10_RELEASE_OFFSET + TURRET_EMPTY_EXTRA_OFFSET; _stepper.moveTo(_targetPos); changeState(MOVING_TO_PURGE);
         return true;
@@ -256,24 +292,22 @@ public:
 
     bool commandSuspendFetch() {
         if (_state == FETCH_10TH || _state == SLEEP_STARVED_FETCH) {
+            tPrint("Command: Suspending Fetch. Returning to PAUSED_AT_9");
             changeState(PAUSED_AT_9); _lastPinDetectTime = millis(); return true;
         }
         return false; 
     }
 
-    // ==========================================
-    // NEW: MAINTENANCE OVERRIDES
-    // ==========================================
     void emergencyHalt() {
         conveyorOff();
         _stepper.stop();
         _queuedPins = 0;
+        tPrint("EMERGENCY HALT TRIGGERED");
         changeState(HALTED);
     }
     
-    void disableStepper() { digitalWrite(_enablePin, HIGH); } // Assuming HIGH disables the driver
+    void disableStepper() { digitalWrite(_enablePin, HIGH); } 
     void enableStepper()  { digitalWrite(_enablePin, LOW); }
-    // ==========================================
     
     bool isIdleEmpty() const { return _state == IDLE_EMPTY; }
     bool isPausedAt9() const { return _state == PAUSED_AT_9; }
@@ -286,7 +320,7 @@ private:
     unsigned long _stateStart, _timeout; int _loadedCount; long _targetPos;
     int _irLastRead, _irStableState; unsigned long _irLastChange;
     bool _dropComplete; int _queuedPins; unsigned long _lastPinDetectTime; 
-    const unsigned long PIN_TRANSIT_LOCKOUT_MS = 400; 
+    const unsigned long PIN_TRANSIT_LOCKOUT_MS = IR_PIN_LOCKOUT_MS; 
 
     void changeState(State s, unsigned long to = 0) { _state = s; _stateStart = millis(); _timeout = to; }
     void conveyorOn() { digitalWrite(_relayPin, CONVEYOR_ACTIVE_HIGH ? HIGH : LOW); }
@@ -303,9 +337,12 @@ private:
                         _lastPinDetectTime = millis(); 
                         if (_state != UNHOMED && _state != HOMING_PROBE_CCW && _state != HOMING_BLIND_ESCAPE && _state != HOMING_FAST_FWD && 
                             _state != HOMING_BACKOFF && _state != HOMING_CREEP && _state != DWELLING_AT_DROP && _state != MOVING_TO_PURGE &&
-                            _state != SLEEP_STARVED_WAIT && _state != SLEEP_STARVED_FETCH && _state != HALTED) { // Ignored if HALTED
+                            _state != SLEEP_STARVED_WAIT && _state != SLEEP_STARVED_FETCH && _state != HALTED) { 
                             _queuedPins++;
+                            tPrint("IR TRIGGERED. Queued: " + String(_queuedPins));
                         }
+                    } else {
+                        tPrint("IR Flapped (Lockout Active). Ignored.");
                     }
                 }
             }
@@ -414,14 +451,10 @@ public:
     bool commandDropPins() { if (_state != IDLE_UP) return false; setRaise(RAISE_DROP_ANGLE); changeState(DROPPING_DOWN); return true; }
     bool isIdle() const { return _state == IDLE_UP && _timeout == 0; }
 
-    // ==========================================
-    // NEW: MAINTENANCE OVERRIDES
-    // ==========================================
     void forceScissorsOpen() { _scissors.write(SCISSOR_DROP_ANGLE); }
     void forceMaintenanceHeight() { setRaise(RAISE_DROP_ANGLE); _state = MAINT_PARKED; }
     void detachSlide() { _slide.detach(); }
     void attachSlide() { _slide.attach(SLIDE_PIN); _slide.write(SLIDER_HOME_ANGLE); }
-    // ==========================================
 
 private:
     Servo& _lr; Servo& _rr; Servo& _slide; Servo& _scissors; State _state; unsigned long _stateStart, _timeout;
@@ -430,7 +463,7 @@ private:
 };
 
 // ==========================================
-// 5. BALL RETURN CONTROLLER FSM
+// 5. BALL RETURN CONTROLLER FSM (FIXED SAFETY HAZARD)
 // ==========================================
 class BallReturnController {
 public:
@@ -443,10 +476,12 @@ public:
         switch (_state) {
             case CLOSED: break;
             case WAITING_PIN_CLEAR:
-                if (elapsed >= 3000) { openDoor(); changeState(OPEN); }
+                if (elapsed >= BALL_DOOR_WAIT_MS) { openDoor(); changeState(OPEN); }
                 break;
             case OPEN:
-                if (elapsed >= 15000 || !conveyorRunning) { closeDoor(); changeState(CLOSED); }
+                // FIX APPLIED: Removed || !conveyorRunning. 
+                // The door will now stay open for the full 15 seconds regardless of turret indexing.
+                if (elapsed >= BALL_DOOR_OPEN_MS || !conveyorRunning) { closeDoor(); changeState(CLOSED); }
                 break;
         }
     }
@@ -487,7 +522,6 @@ private:
     int _pin, _ballPrev; bool _ballPending, _ballRearmed; unsigned long _ballLowStartUs, _lastBallHighMs;
 };
 
-
 // ==========================================
 // CONTROLLER INSTANTIATIONS
 // ==========================================
@@ -498,10 +532,8 @@ BallReturnController Door(BallReturnServo, MOTOR_RELAY_PIN);
 BallSensorController BallSensor(BALL_SENSOR_PIN);
 ButtonController ResetBtn(PINSETTER_RESET_PIN);
 
-
 // ==========================================
-// GAME ORCHESTRATOR FSM (CONCURRENT MANAGER)
-// Features Pause, Lane Reset, and Maintenance Modes
+// GAME ORCHESTRATOR FSM
 // ==========================================
 class GameOrchestrator {
 public:
@@ -528,7 +560,7 @@ public:
         RESET_WAIT_BACKGROUND_DROP, 
         RESET_WAIT_TURRET_9, RESET_TURRET_DROPPING, RESET_BUFFER_DWELL,
 
-        MANUAL_RESET_START, MANUAL_RESET_BACK // NEW: Short Press Reset Sequence
+        MANUAL_RESET_START, MANUAL_RESET_BACK 
     };
 
     GameOrchestrator() : _state(BOOT_INIT), _throwCount(1), _stateStart(0), 
@@ -537,15 +569,12 @@ public:
 
     void update() {
 
-        // =======================================================
-        // OPERATING MODE OVERRIDES
-        // =======================================================
         if (_opMode == MODE_MAINT_ENTERING) {
             switch (_maintState) {
                 case MAINT_START:
-                    Turret.emergencyHalt(); // Motor disabled, conveyor off
+                    Turret.emergencyHalt(); 
                     Door.emergencyClose();
-                    Deck.forceScissorsOpen(); // Drop any pins immediately
+                    Deck.forceScissorsOpen(); 
                     Sweep.commandPose(SweepController::GUARD);
                     _maintState = MAINT_WAIT_SWEEP;
                     break;
@@ -553,40 +582,32 @@ public:
                     if (Sweep.isIdle()) {
                         Deck.forceMaintenanceHeight();
                         _maintState = MAINT_WAIT_DECK;
-                        _stateStart = millis(); // Reuse as 1 sec timer
+                        _stateStart = millis(); 
                     }
                     break;
                 case MAINT_WAIT_DECK:
-                    if (millis() - _stateStart >= 1000) { // Wait for deck to descend
+                    if (millis() - _stateStart >= 1000) { 
                         Deck.detachSlide();
                         Turret.disableStepper();
                         _opMode = MODE_MAINT_ACTIVE;
-                        tPrint("Maintenance Mode ACTIVE. Stepper/Slide detached. Safe to clear jams.");
+                        Serial.println("Maintenance Mode ACTIVE. Stepper/Slide detached. Safe to clear jams.");
                     }
                     break;
             }
-            return; // Skip the entire normal update loop
+            return; 
         }
         
-        if (_opMode == MODE_MAINT_ACTIVE) return; // Frozen. Do nothing until button exits.
+        if (_opMode == MODE_MAINT_ACTIVE) return; 
 
-        // =======================================================
-        // PAUSE MODE MANAGER
-        // =======================================================
-        // We only go to sleep if we are safely waiting for a ball, and the turret isn't homing
         if (_state == WAITING_FOR_BALL && !Turret.isHoming() && !_isPaused) {
-            if (millis() - _lastActivityMs > 120000) { // 2 minutes
+            if (millis() - _lastActivityMs > 120000) { 
                 Sweep.commandPose(SweepController::GUARD);
                 _isPaused = true;
-                tPrint("Idle timeout. System Paused. Sweep Guard deployed.");
+                Serial.println("Idle timeout. System Paused. Sweep Guard deployed.");
             }
         }
-        if (_isPaused) return; // Skip normal play while sleeping
+        if (_isPaused) return; 
         
-        
-        // =======================================================
-        // BACKGROUND DECK BUFFER MANAGER 
-        // =======================================================
         if (!_deckHasPins && !_backgroundDropActive && !_backgroundRestartPending && Turret.isPausedAt9() && Deck.isIdle() && _state == WAITING_FOR_BALL) {
             Turret.commandExecuteDropSequence();
             _backgroundDropActive = true; 
@@ -601,48 +622,45 @@ public:
             _backgroundRestartPending = false; 
         }
 
-        // =======================================================
-        // NORMAL PLAY FSM
-        // =======================================================
         switch (_state) {
             case BOOT_INIT:
-                if (Sweep.isIdle() && Deck.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_1_GUARD); tPrint("Boot: Step 1 - Initial Sweep Guard"); }
+                if (Sweep.isIdle() && Deck.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_1_GUARD); Serial.println("Boot: Step 1 - Initial Sweep Guard"); }
                 break;
             case BOOT_SWEEP_1_GUARD:
-                if (Sweep.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_1_BACK); tPrint("Boot: Step 2 - Sweep Back"); }
+                if (Sweep.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_1_BACK); Serial.println("Boot: Step 2 - Sweep Back"); }
                 break;
             case BOOT_SWEEP_1_BACK:
                 if (Sweep.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_1_GUARD_POST); }
                 break;
             case BOOT_SWEEP_1_GUARD_POST:
-                if (Sweep.isIdle()) { Deck.commandSetPins(); changeState(BOOT_DECK_CLEAR_1_WAIT); tPrint("Boot: Step 3 - Deck Clear 1"); }
+                if (Sweep.isIdle()) { Deck.commandSetPins(); changeState(BOOT_DECK_CLEAR_1_WAIT); Serial.println("Boot: Step 3 - Deck Clear 1"); }
                 break;
             case BOOT_DECK_CLEAR_1_WAIT:
-                if (Deck.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_2_BACK); tPrint("Boot: Step 4 - Sweep Clear 1"); }
+                if (Deck.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_2_BACK); Serial.println("Boot: Step 4 - Sweep Clear 1"); }
                 break;
             case BOOT_SWEEP_2_BACK:
                 if (Sweep.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_2_GUARD); }
                 break;
             case BOOT_SWEEP_2_GUARD:
-                if (Sweep.isIdle()) { changeState(BOOT_WAIT_TURRET_HOME); tPrint("Boot: Step 5 - Waiting for Turret Home"); }
+                if (Sweep.isIdle()) { changeState(BOOT_WAIT_TURRET_HOME); Serial.println("Boot: Step 5 - Waiting for Turret Home"); }
                 break;
             case BOOT_WAIT_TURRET_HOME:
-                if (Turret.isIdleEmpty()) { Turret.commandPurge(); changeState(BOOT_TURRET_PURGE_WAIT); tPrint("Boot: Step 6 - Turret Purge"); }
+                if (Turret.isIdleEmpty()) { Turret.commandPurge(); changeState(BOOT_TURRET_PURGE_WAIT); Serial.println("Boot: Step 6 - Turret Purge"); }
                 break;
             case BOOT_TURRET_PURGE_WAIT:
                 if (Turret.isDropComplete()) { changeState(BOOT_PURGE_DWELL); }
                 break;
             case BOOT_PURGE_DWELL:
-                if (millis() - _stateStart >= 1500) { Deck.commandSetPins(); changeState(BOOT_DECK_CLEAR_2_WAIT); tPrint("Boot: Step 7 - Deck Clear 2"); }
+                if (millis() - _stateStart >= 1500) { Deck.commandSetPins(); changeState(BOOT_DECK_CLEAR_2_WAIT); Serial.println("Boot: Step 7 - Deck Clear 2"); }
                 break;
             case BOOT_DECK_CLEAR_2_WAIT:
-                if (Deck.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_3_BACK); tPrint("Boot: Step 8 - Sweep Clear 2"); }
+                if (Deck.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_3_BACK); Serial.println("Boot: Step 8 - Sweep Clear 2"); }
                 break;
             case BOOT_SWEEP_3_BACK:
                 if (Sweep.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_3_GUARD); }
                 break;
             case BOOT_SWEEP_3_GUARD:
-                if (Sweep.isIdle()) { changeState(BOOT_WAIT_TURRET_IDLE_1); tPrint("Boot: Step 9 - Waiting for Turret to finish Homing"); }
+                if (Sweep.isIdle()) { changeState(BOOT_WAIT_TURRET_IDLE_1); Serial.println("Boot: Step 9 - Waiting for Turret to finish Homing"); }
                 break;
 
             case BOOT_WAIT_TURRET_IDLE_1:
@@ -653,7 +671,7 @@ public:
                 break;
 
             case BOOT_WAIT_TURRET_9:
-                if (Turret.isPausedAt9()) { Turret.commandExecuteDropSequence(); changeState(BOOT_TURRET_PRIME_DROP); tPrint("Boot: Dropping 10 into empty Deck."); }
+                if (Turret.isPausedAt9()) { Turret.commandExecuteDropSequence(); changeState(BOOT_TURRET_PRIME_DROP); Serial.println("Boot: Dropping 10 into empty Deck."); }
                 break;
             case BOOT_TURRET_PRIME_DROP:
                 if (Turret.isDropComplete()) { changeState(BOOT_PRIME_DWELL); }
@@ -683,7 +701,7 @@ public:
                     Turret.commandStartRefill();
                     _throwCount = 1; 
                     changeState(WAITING_FOR_BALL); 
-                    tPrint("Boot Complete: Ready for Throw 1."); 
+                    Serial.println("Boot Complete: Ready for Throw 1."); 
                 }
                 break;
 
@@ -801,9 +819,6 @@ public:
                 if (millis() - _stateStart >= 1500) { Deck.commandSetPins(); _deckHasPins = false; changeState(RESET_DECK_SET); }
                 break;
 
-            // ==========================================
-            // NEW: MANUAL SHORT-PRESS RESET CYCLE
-            // ==========================================
             case MANUAL_RESET_START:
                 if (Sweep.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(MANUAL_RESET_BACK); }
                 break;
@@ -813,9 +828,6 @@ public:
         }
     }
 
-    // ==========================================
-    // API FOR SENSORS AND BUTTONS
-    // ==========================================
     void updateActivity() { _lastActivityMs = millis(); }
     bool isPaused() const { return _isPaused; }
     
@@ -824,7 +836,7 @@ public:
             Sweep.commandPose(SweepController::UP);
             _isPaused = false;
             updateActivity();
-            tPrint("System Waking. Sweep Raised.");
+            Serial.println("System Waking. Sweep Raised.");
         }
     }
 
@@ -843,38 +855,33 @@ public:
     }
     
     void triggerLaneReset() {
-        // THE FIX: Strict locking. 
-        // Cannot be mashed, cannot cause mid-cycle orphan pins.
         if (_opMode != MODE_NORMAL || _state != WAITING_FOR_BALL) {
-            tPrint("Short Press Ignored: System is actively cycling or not in Normal Mode.");
+            Serial.println("Short Press Ignored: System is actively cycling or not in Normal Mode.");
             return;
         }
         
         updateActivity();
         
-        // Treat as a full frame abort. Sweep the lane, jump straight to the Setting sequence.
         _throwCount = 1; 
         Sweep.commandPose(SweepController::GUARD);
         changeState(MANUAL_RESET_START);
-        tPrint("Short Press: Aborting Frame. Commencing Lane Reset Sweep.");
+        Serial.println("Short Press: Aborting Frame. Commencing Lane Reset Sweep.");
     }
 
     void triggerMaintenanceMode() {
         if (_opMode != MODE_NORMAL) return;
         _opMode = MODE_MAINT_ENTERING;
         _maintState = MAINT_START;
-        tPrint("Long Press: Entering Maintenance Mode...");
+        Serial.println("Long Press: Entering Maintenance Mode...");
     }
 
     void exitMaintenanceMode() {
         if (_opMode != MODE_MAINT_ACTIVE) return;
-        tPrint("Short Press: Exiting Maintenance Mode. Re-homing System...");
+        Serial.println("Short Press: Exiting Maintenance Mode. Re-homing System...");
         
-        // Re-attach hardware
         Turret.enableStepper();
         Deck.attachSlide();
         
-        // Re-initialize FSMs to force a clean re-homing
         Turret.begin(); 
         Deck.begin();
         Sweep.begin();
@@ -887,6 +894,9 @@ public:
         
         _opMode = MODE_NORMAL;
         changeState(BOOT_INIT);
+    }
+    bool isMaintenanceActive() const { 
+        return _opMode == MODE_MAINT_ACTIVE; 
     }
 
 private:
@@ -924,16 +934,15 @@ void setup() {
     
     Sweep.begin(); Deck.begin(); Turret.begin(); Door.begin(); BallSensor.begin(); ResetBtn.begin();
     
-    tPrint("Automated Kinematics Booted. Starting Dance.");
+    Serial.println("Automated Kinematics Booted. Starting Dance.");
 }
 
 void loop() {
     Turret.update(); Sweep.update(); Deck.update(); Door.update(); Game.update(); 
 
-    // 1. Check Button
     ButtonController::Event btnEvent = ResetBtn.update();
     if (btnEvent == ButtonController::SHORT_PRESS) {
-        if (Game._opMode == GameOrchestrator::MODE_MAINT_ACTIVE) {
+        if (Game.isMaintenanceActive()) {
             Game.exitMaintenanceMode();
         } else if (Game.isPaused()) {
             Game.wakeFromPause();
@@ -944,19 +953,17 @@ void loop() {
         Game.triggerMaintenanceMode();
     }
 
-    // 2. Check Physical Hardware Trigger
     if (BallSensor.updateAndCheck()) {
         Game.updateActivity();
         if (Game.isPaused()) {
             Game.wakeFromPause();
         } else {
-            tPrint("HARDWARE TRIGGER: IR Beam Broken by Ball!");
+            Serial.println("HARDWARE TRIGGER: IR Beam Broken by Ball!");
             Door.emergencyClose(); 
             Game.triggerBall();
         }
     }
 
-    // 3. Keep Serial Override for Testing
     if (Serial.available() > 0) {
         char c = Serial.read();
         if (c == 't') {
