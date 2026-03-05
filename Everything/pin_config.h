@@ -16,7 +16,9 @@
 #ifndef DIR_PIN
 #define DIR_PIN         A1 // PIN 3 reserved for ball sensor
 #endif
-// #define STEPPER_ENABLE_PIN  22  // Uncomment if your driver has an enable pin
+#ifndef STEPPER_ENABLE_PIN
+#define STEPPER_ENABLE_PIN         49
+#endif
 
 // =====================================================
 // RELAY PIN
