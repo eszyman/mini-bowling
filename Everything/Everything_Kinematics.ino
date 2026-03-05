@@ -472,7 +472,7 @@ public:
     void begin() { closeDoor(); }
     void update() {
         unsigned long elapsed = millis() - _stateStart;
-        bool conveyorRunning = (digitalRead(_relayPin) == (CONVEYOR_ACTIVE_HIGH ? HIGH : LOW));
+        //bool conveyorRunning = (digitalRead(_relayPin) == (CONVEYOR_ACTIVE_HIGH ? HIGH : LOW));
         switch (_state) {
             case CLOSED: break;
             case WAITING_PIN_CLEAR:
@@ -481,7 +481,7 @@ public:
             case OPEN:
                 // FIX APPLIED: Removed || !conveyorRunning. 
                 // The door will now stay open for the full 15 seconds regardless of turret indexing.
-                if (elapsed >= BALL_DOOR_OPEN_MS || !conveyorRunning) { closeDoor(); changeState(CLOSED); }
+                if (elapsed >= BALL_DOOR_OPEN_MS) { closeDoor(); changeState(CLOSED); }
                 break;
         }
     }
@@ -495,33 +495,47 @@ private:
 };
 
 // ==========================================
-// 6. BALL SENSOR CONTROLLER
+// 6. BALL SENSOR CONTROLLER (HARDWARE INTERRUPT)
 // ==========================================
+// Volatile tells the compiler these variables can change outside the normal flow
+volatile bool _isrBallTripped = false;
+volatile unsigned long _lastInterruptTime = 0;
+
+// The Interrupt Service Routine (ISR) - Executes in nanoseconds, outside the main loop
+void ballSensorISR() {
+    unsigned long currentTime = millis(); 
+    
+    // Hardware Debounce: If the shiny ball causes the beam to bounce 50 times 
+    // in 2 milliseconds, we only register the very first one.
+    if (currentTime - _lastInterruptTime > BALL_REARM_MS) {
+        _isrBallTripped = true;
+        _lastInterruptTime = currentTime;
+    }
+}
+
 class BallSensorController {
 public:
-    BallSensorController(int pin) : _pin(pin), _ballPrev(HIGH), _ballPending(false), _ballRearmed(true), _ballLowStartUs(0), _lastBallHighMs(0) {}
-    void begin() { pinMode(_pin, INPUT_PULLUP); _ballPrev = HIGH; }
+    BallSensorController(int pin) : _pin(pin) {}
+    
+    void begin() { 
+        pinMode(_pin, INPUT_PULLUP); 
+        
+        // Attach the hardware interrupt. 
+        // FALLING means it triggers the nanosecond the 5V signal drops to 0V (beam broken).
+        attachInterrupt(digitalPinToInterrupt(_pin), ballSensorISR, FALLING);
+    }
+    
     bool updateAndCheck() {
-        int rawBall = digitalRead(_pin);
-        bool trippedThisFrame = false;
-        if (rawBall == LOW && _ballPrev == HIGH) { _ballPending = true; _ballLowStartUs = micros(); }
-        if (_ballPending) {
-            if (rawBall == LOW) {
-                if ((micros() - _ballLowStartUs) >= BALL_LOW_CONFIRM_US && _ballRearmed) {
-                    trippedThisFrame = true; _ballRearmed = false; _ballPending = false; _lastBallHighMs = millis(); 
-                }
-            } else { _ballPending = false; }
+        // The main loop just checks if the ISR caught a ball while it was busy doing math
+        if (_isrBallTripped) {
+            _isrBallTripped = false; // Clear the flag so we don't trigger twice
+            return true;
         }
-        if (!_ballRearmed && rawBall == HIGH) {
-            if (millis() - _lastBallHighMs >= BALL_REARM_MS) { _ballRearmed = true; }
-        } else if (rawBall == LOW) { _lastBallHighMs = millis(); }
-        _ballPrev = rawBall;
-        return trippedThisFrame; 
+        return false; 
     }
 private:
-    int _pin, _ballPrev; bool _ballPending, _ballRearmed; unsigned long _ballLowStartUs, _lastBallHighMs;
+    int _pin; 
 };
-
 // ==========================================
 // CONTROLLER INSTANTIATIONS
 // ==========================================
