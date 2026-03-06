@@ -14,7 +14,7 @@
 #define STEP_PIN        A0 // PIN 2 reserved for ball sensor
 #endif
 #ifndef DIR_PIN
-#define DIR_PIN         A1 // PIN 3 reserved for ball sensor
+#define DIR_PIN         A1 // PIN 3 reserved for ball speed sensor
 #endif
 #ifndef STEPPER_ENABLE_PIN
 #define STEPPER_ENABLE_PIN         49
@@ -72,7 +72,7 @@
 // PINSETTER RESET PIN
 // =====================================================
 #ifndef PINSETTER_RESET_PIN
-#define PINSETTER_RESET_PIN 41
+#define PINSETTER_RESET_PIN 48 //default 41
 #endif
 
 // =====================================================
