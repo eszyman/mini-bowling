@@ -464,7 +464,7 @@ private:
 };
 
 // ==========================================
-// 5. BALL RETURN CONTROLLER FSM (FIXED SAFETY HAZARD)
+// 5. BALL RETURN CONTROLLER FSM
 // ==========================================
 class BallReturnController {
 public:
@@ -496,66 +496,93 @@ private:
 };
 
 // ==========================================
-// 6. DUAL BALL SENSOR CONTROLLER (SOFTWARE POLLING)
+// 6. DUAL BALL SENSOR CONTROLLER (DECOUPLED & SHIELDED)
 // ==========================================
+volatile bool _isrSpeedTripped = false;
+volatile bool _isrTriggerTripped = false;
+volatile unsigned long _isrSpeedTime = 0;
+volatile unsigned long _isrTriggerTime = 0;
+
+// SENSOR 1: SPEED (Use Hardware Interrupt Pin)
+void ballSensorSpeedISR() {
+    delayMicroseconds(100); 
+    if (digitalRead(BALL_SPEED_PIN) == HIGH) return; 
+    unsigned long currentMicros = micros(); 
+    if (currentMicros - _isrSpeedTime > (BALL_REARM_MS * 1000UL)) {
+        _isrSpeedTripped = true;
+        _isrSpeedTime = currentMicros;
+    }
+}
+
+// SENSOR 2: TRIGGER (Use Hardware Interrupt Pin)
+void ballSensorTriggerISR() {
+    delayMicroseconds(100);
+    if (digitalRead(BALL_SENSOR_PIN) == HIGH) return;
+    unsigned long currentMicros = micros(); 
+    if (currentMicros - _isrTriggerTime > (BALL_REARM_MS * 1000UL)) {
+        _isrTriggerTripped = true;
+        _isrTriggerTime = currentMicros;
+    }
+}
+
 class BallSensorController {
 public:
     BallSensorController(int pinSpeed, int pinTrigger) : _pinSpeed(pinSpeed), _pinTrigger(pinTrigger), 
         _smSpeedPulseActive(false), _smTriggerPulseActive(false), 
         _smSpeedPulseStart(0), _smTriggerPulseStart(0),
-        _speedRearmed(true), _triggerRearmed(true),
-        _lastSpeedHighMs(0), _lastTriggerHighMs(0) {}
+        _wasReady(false), _readyStartTime(0) {}
     
     void begin() { 
         pinMode(_pinSpeed, INPUT_PULLUP); 
         pinMode(_pinTrigger, INPUT_PULLUP); 
+        attachInterrupt(digitalPinToInterrupt(_pinSpeed), ballSensorSpeedISR, FALLING);
+        attachInterrupt(digitalPinToInterrupt(_pinTrigger), ballSensorTriggerISR, FALLING);
     }
     
     bool updateAndCheck(bool systemReady) {
-        int rawSpeed = digitalRead(_pinSpeed);
-        int rawTrigger = digitalRead(_pinTrigger);
-
-        // SWEEP OCCLUSION SHIELD: If the system is busy, ignore sensors and force them rearmed
+        // 1. SWEEP OCCLUSION: Ignore everything if machine is busy
         if (!systemReady) {
-            _speedRearmed = true;
-            _triggerRearmed = true;
+            _wasReady = false;
+            _isrSpeedTripped = false;
+            _isrTriggerTripped = false;
             return false;
+        }
+
+        // 2. INDUCTIVE SETTLE: 500ms blind spot when motors stop
+        if (!_wasReady) {
+            _wasReady = true;
+            _readyStartTime = millis();
+            _isrSpeedTripped = false;
+            _isrTriggerTripped = false;
+            return false;
+        }
+        if (millis() - _readyStartTime < 500) {
+            _isrSpeedTripped = false;
+            _isrTriggerTripped = false;
+            return false; 
         }
 
         bool triggeredGame = false;
 
-        // --- SENSOR 1: SPEED POLLING ---
-        if (rawSpeed == LOW && _speedRearmed) {
-            _speedRearmed = false;
-            
+        // --- DECOUPLED SPEED SENSOR ---
+        if (_isrSpeedTripped) {
+            _isrSpeedTripped = false; 
             Serial.print("INPUT_CHANGE:"); Serial.print(SM_SPEED_SENSOR); Serial.println(":0");
             _smSpeedPulseActive = true;
             _smSpeedPulseStart = millis();
-        } else if (rawSpeed == HIGH) {
-            if (!_speedRearmed && (millis() - _lastSpeedHighMs >= BALL_REARM_MS)) {
-                _speedRearmed = true;
-            }
         }
-        if (rawSpeed == HIGH) _lastSpeedHighMs = millis();
 
-
-        // --- SENSOR 2: TRIGGER POLLING ---
-        if (rawTrigger == LOW && _triggerRearmed) {
-            _triggerRearmed = false;
-            triggeredGame = true; // Tell Orchestrator to drop the sweep!
-            
+        // --- DECOUPLED TRIGGER SENSOR ---
+        // The ultimate truth. If this fires, the game cycles.
+        if (_isrTriggerTripped) {
+            _isrTriggerTripped = false; 
+            triggeredGame = true; 
             Serial.print("INPUT_CHANGE:"); Serial.print(SM_BALL_TRIGGER); Serial.println(":0");
             _smTriggerPulseActive = true;
             _smTriggerPulseStart = millis();
-        } else if (rawTrigger == HIGH) {
-            if (!_triggerRearmed && (millis() - _lastTriggerHighMs >= BALL_REARM_MS)) {
-                _triggerRearmed = true;
-            }
         }
-        if (rawTrigger == HIGH) _lastTriggerHighMs = millis();
 
-
-        // --- SCOREMORE PULSE TIMEOUTS ---
+        // --- PULSE TIMEOUTS ---
         if (_smSpeedPulseActive && (millis() - _smSpeedPulseStart >= SCOREMORE_BALL_PULSE_MS)) {
             Serial.print("INPUT_CHANGE:"); Serial.print(SM_SPEED_SENSOR); Serial.println(":1");
             _smSpeedPulseActive = false;
@@ -573,9 +600,7 @@ private:
     int _pinSpeed, _pinTrigger; 
     bool _smSpeedPulseActive, _smTriggerPulseActive;
     unsigned long _smSpeedPulseStart, _smTriggerPulseStart;
-    
-    bool _speedRearmed, _triggerRearmed;
-    unsigned long _lastSpeedHighMs, _lastTriggerHighMs;
+    bool _wasReady; unsigned long _readyStartTime;
 };
 
 // ==========================================
