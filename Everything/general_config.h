@@ -5,6 +5,11 @@
 // =====================================================
 
 // =====================================================
+// DEBUG AND SENSOR TUNING
+// =====================================================
+#define DEBUG_TURRET 1          // Set to 0 to disable turret serial prints
+
+// =====================================================
 // SCOREMORE SERIAL BAUD RATE & CONFIG
 // =====================================================
 #ifndef SCOREMORE_BAUD
@@ -53,11 +58,15 @@
 #endif
 
 #ifndef WLED_PRESET_SPARE
-#define WLED_PRESET_SPARE       5   // Spare (ScoreMore required)
+#define WLED_PRESET_SPARE       4   // Spare (ScoreMore required)
 #endif
 
 #ifndef WLED_PRESET_PAUSE
 #define WLED_PRESET_PAUSE       6   // Pause / Sleep Mode
+#endif
+
+#ifndef WLED_PRESET_THROW
+#define WLED_PRESET_THROW       5   // Throw
 #endif
 
 // =====================================================
@@ -67,6 +76,12 @@
 #ifndef CONVEYOR_ACTIVE_HIGH
 #define CONVEYOR_ACTIVE_HIGH 1    // DEFAULT: 1
 #endif
+// Pin Lockout: How long (in ms) after sensing a pin should we ignore the sensor?
+// Tune this based on how long it takes a pin to fully pass the beam.
+#ifndef IR_PIN_LOCKOUT_MS
+#define IR_PIN_LOCKOUT_MS 300   // DEFAULT: 300ms 
+#endif
+
 
 // =====================================================
 // LED BRIGHTNESS (0-255)
@@ -109,6 +124,15 @@
 #endif
 #ifndef BALL_DOOR_CLOSED_ANGLE
 #define BALL_DOOR_CLOSED_ANGLE  0    // DEFAULT: 0
+#endif
+// =====================================================
+// BALL RETURN DOOR TIMING (milliseconds)
+// =====================================================
+#ifndef BALL_DOOR_WAIT_MS
+#define BALL_DOOR_WAIT_MS       1700  // Time to wait for pins to clear before opening door. DEFAULT: 1700
+#endif
+#ifndef BALL_DOOR_OPEN_MS
+#define BALL_DOOR_OPEN_MS       10000 // Time to hold the door open for the ball to pass. DEFAULT: 10000
 #endif
 
 // =====================================================
