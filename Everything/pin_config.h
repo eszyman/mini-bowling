@@ -11,12 +11,14 @@
 // STEPPER MOTOR PINS
 // =====================================================
 #ifndef STEP_PIN
-#define STEP_PIN        2
+#define STEP_PIN        A0 // PIN 2 reserved for ball sensor
 #endif
 #ifndef DIR_PIN
-#define DIR_PIN         3
+#define DIR_PIN         A1 // PIN 3 reserved for ball speed sensor
 #endif
-// #define STEPPER_ENABLE_PIN  22  // Uncomment if your driver has an enable pin
+#ifndef STEPPER_ENABLE_PIN
+#define STEPPER_ENABLE_PIN         49
+#endif
 
 // =====================================================
 // RELAY PIN
