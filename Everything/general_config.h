@@ -19,11 +19,17 @@
 #define SCOREMORE_USER      0     // DEFAULT: 0, do not wait for Scoremore connect. Set to 1 to wait for Scoremore before intialization.
 #endif
 
-
 // =====================================================
-// LED STRIP LENGTHS
+// LED HARDWARE TOGGLE
+// =====================================================
+// Uncomment to drive NeoPixels natively from the Arduino Mega.
+// Comment out to use external WLED ESP32 via Serial1.
+// #define USE_NATIVE_LEDS
+// =====================================================
+// LED STRIP LENGTHS (using NeoPixels natively)
 // Left and right can be set independently if needed
 // =====================================================
+#define USE_NATIVE_LEDS
 #ifndef DECK_LED_LENGTH_L
 #define DECK_LED_LENGTH_L   11    // Left deck strip.  DEFAULT: 11
 #endif
