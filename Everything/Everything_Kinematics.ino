@@ -18,9 +18,24 @@
 #endif
 
 #if DEBUG_TURRET
+  #define DEBUG_PRINT(x) Serial.println(x)
   #define tPrint(x) Serial.println(String("TURRET: ") + x)
 #else
+  #define DEBUG_PRINT(x) 
   #define tPrint(x) 
+#endif
+
+#if SCOREMORE_USER == 1
+void waitForScoreMore() {
+    Serial.println("WAITING_FOR_SCOREMORE");
+    while (true) {
+        if (Serial && Serial.available() > 0) {
+            Serial.println("SCOREMORE_CONNECTED");
+            return;
+        }
+        delay(5);
+    }
+}
 #endif
 
 // ==========================================
@@ -101,7 +116,7 @@ public:
     TurretController(AccelStepper& stp, int ir, int hall, int relay, int enablePin)
         : _stepper(stp), _irPin(ir), _hallPin(hall), _relayPin(relay), _enablePin(enablePin),
           _state(UNHOMED), _loadedCount(0), _targetPos(0), _dropComplete(false), 
-          _queuedPins(0), _lastPinDetectTime(0) {}
+          _queuedPins(0), _lastPinDetectTime(0), _isPurging(false) {} 
 
     void begin() {
         pinMode(_irPin, INPUT_PULLUP); pinMode(_hallPin, INPUT_PULLUP); pinMode(_relayPin, OUTPUT);
@@ -225,7 +240,7 @@ public:
                 break;
 
             case DWELLING_AT_DROP:
-                if (elapsed < RELEASE_FEED_ASSIST_MS) { conveyorOn(); } else { conveyorOff(); }
+                if (!_isPurging && elapsed < RELEASE_FEED_ASSIST_MS) { conveyorOn(); } else { conveyorOff(); }
                 if (elapsed >= _timeout) {
                     tPrint("Drop Complete. Escaping Blindly.");
                     _dropComplete = true; 
@@ -247,9 +262,9 @@ public:
     bool commandStartRefill() {
         if (_state != IDLE_EMPTY) return false;
         tPrint("Command: Start Refill");
-        _dropComplete = false; _loadedCount = 0; _queuedPins = 0;         
-        // FIX: Set the timer into the past so the lockout is NOT active upon starting.
-        _lastPinDetectTime = millis() - IR_PIN_LOCKOUT_MS - 1;         
+        _dropComplete = false; _loadedCount = 0; _queuedPins = 0; 
+        _isPurging = false; // <-- NEW: Ensure feed assist is active for gameplay       
+        _lastPinDetectTime = millis() - IR_PIN_LOCKOUT_MS - 1;        
         _targetPos = getPositionForSlot(1); _stepper.moveTo(_targetPos); changeState(INDEXING_TO_NEXT); 
         return true;
     }
@@ -257,8 +272,8 @@ public:
     bool commandExecuteDropSequence() {
         if (_state != PAUSED_AT_9) return false;
         tPrint("Command: Execute Drop Sequence (Waiting on 10th Pin)");
-        _dropComplete = false;         
-        // FIX: Remove blind spot
+        _dropComplete = false;        
+        _isPurging = false; // <-- NEW: Ensure feed assist is active for gameplay
         _lastPinDetectTime = millis() - IR_PIN_LOCKOUT_MS - 1;        
         changeState(FETCH_10TH);
         return true;
@@ -285,8 +300,11 @@ public:
     bool commandPurge() {
         if (_state != IDLE_EMPTY) return false;
         tPrint("Command: Purge Turret");
-        _dropComplete = false; _stepper.setMaxSpeed(TURRET_SPRING_MAXSPEED); _stepper.setAcceleration(TURRET_SPRING_ACCEL);
-        _targetPos = getPositionForSlot(10) + TURRET_PIN10_RELEASE_OFFSET + TURRET_EMPTY_EXTRA_OFFSET; _stepper.moveTo(_targetPos); changeState(MOVING_TO_PURGE);
+        _dropComplete = false; 
+        _isPurging = true; // <-- NEW: Suppress feed assist during purge
+        _stepper.setMaxSpeed(TURRET_SPRING_MAXSPEED); _stepper.setAcceleration(TURRET_SPRING_ACCEL);
+        _targetPos = getPositionForSlot(10) + TURRET_PIN10_RELEASE_OFFSET + TURRET_EMPTY_EXTRA_OFFSET; 
+        _stepper.moveTo(_targetPos); changeState(MOVING_TO_PURGE);
         return true;
     }
 
@@ -320,6 +338,7 @@ private:
     unsigned long _stateStart, _timeout; int _loadedCount; long _targetPos;
     int _irLastRead, _irStableState; unsigned long _irLastChange;
     bool _dropComplete; int _queuedPins; unsigned long _lastPinDetectTime; 
+    bool _isPurging;
     const unsigned long PIN_TRANSIT_LOCKOUT_MS = IR_PIN_LOCKOUT_MS; 
 
     void changeState(State s, unsigned long to = 0) { _state = s; _stateStart = millis(); _timeout = to; }
@@ -464,7 +483,7 @@ private:
 };
 
 // ==========================================
-// 5. BALL RETURN CONTROLLER FSM
+// 5. BALL RETURN CONTROLLER FSM (FIXED SAFETY HAZARD)
 // ==========================================
 class BallReturnController {
 public:
@@ -540,7 +559,21 @@ public:
     }
     
     bool updateAndCheck(bool systemReady) {
-        // 1. SWEEP OCCLUSION: Ignore everything if machine is busy
+        // --- 1. SCOREMORE PULSE TIMEOUTS (Moved to top) ---
+        // These MUST execute even if the machine is moving, otherwise 
+        // ScoreMore gets stuck thinking the beam is permanently broken.
+        if (_smSpeedPulseActive && (millis() - _smSpeedPulseStart >= SCOREMORE_BALL_PULSE_MS)) {
+            Serial.print("INPUT_CHANGE:"); Serial.print(SM_SPEED_SENSOR); Serial.println(":1");
+            _smSpeedPulseActive = false;
+        }
+
+        if (_smTriggerPulseActive && (millis() - _smTriggerPulseStart >= SCOREMORE_BALL_PULSE_MS)) {
+            Serial.print("INPUT_CHANGE:"); Serial.print(SM_BALL_TRIGGER); Serial.println(":1");
+            _smTriggerPulseActive = false;
+        }
+
+        // --- 2. SWEEP OCCLUSION ---
+        // Ignore NEW physical triggers if the machine is busy
         if (!systemReady) {
             _wasReady = false;
             _isrSpeedTripped = false;
@@ -548,7 +581,7 @@ public:
             return false;
         }
 
-        // 2. INDUCTIVE SETTLE: 500ms blind spot when motors stop
+        // --- 3. INDUCTIVE SETTLE ---
         if (!_wasReady) {
             _wasReady = true;
             _readyStartTime = millis();
@@ -573,24 +606,12 @@ public:
         }
 
         // --- DECOUPLED TRIGGER SENSOR ---
-        // The ultimate truth. If this fires, the game cycles.
         if (_isrTriggerTripped) {
             _isrTriggerTripped = false; 
             triggeredGame = true; 
             Serial.print("INPUT_CHANGE:"); Serial.print(SM_BALL_TRIGGER); Serial.println(":0");
             _smTriggerPulseActive = true;
             _smTriggerPulseStart = millis();
-        }
-
-        // --- PULSE TIMEOUTS ---
-        if (_smSpeedPulseActive && (millis() - _smSpeedPulseStart >= SCOREMORE_BALL_PULSE_MS)) {
-            Serial.print("INPUT_CHANGE:"); Serial.print(SM_SPEED_SENSOR); Serial.println(":1");
-            _smSpeedPulseActive = false;
-        }
-
-        if (_smTriggerPulseActive && (millis() - _smTriggerPulseStart >= SCOREMORE_BALL_PULSE_MS)) {
-            Serial.print("INPUT_CHANGE:"); Serial.print(SM_BALL_TRIGGER); Serial.println(":1");
-            _smTriggerPulseActive = false;
         }
 
         return triggeredGame; 
@@ -707,7 +728,7 @@ public:
                         Deck.detachSlide();
                         Turret.disableStepper();
                         _opMode = MODE_MAINT_ACTIVE;
-                        Serial.println("Maintenance Mode ACTIVE. Stepper/Slide detached. Safe to clear jams.");
+                        DEBUG_PRINT("Maintenance Mode ACTIVE. Stepper/Slide detached. Safe to clear jams.");
                     }
                     break;
             }
@@ -721,7 +742,7 @@ public:
                 Sweep.commandPose(SweepController::GUARD);
                 _isPaused = true;
                 Wled.triggerPreset(WLED_PRESET_PAUSE);
-                Serial.println("Idle timeout. System Paused. Sweep Guard deployed.");
+                DEBUG_PRINT("Idle timeout. System Paused. Sweep Guard deployed.");
             }
         }
         if (_isPaused) return; 
@@ -742,43 +763,43 @@ public:
 
         switch (_state) {
             case BOOT_INIT:
-                if (Sweep.isIdle() && Deck.isIdle()) { Sweep.commandPose(SweepController::GUARD); Wled.triggerPreset(WLED_PRESET_BOOTING); changeState(BOOT_SWEEP_1_GUARD); Serial.println("Boot: Step 1 - Initial Sweep Guard"); }
+                if (Sweep.isIdle() && Deck.isIdle()) { Sweep.commandPose(SweepController::GUARD); Wled.triggerPreset(WLED_PRESET_BOOTING); changeState(BOOT_SWEEP_1_GUARD); DEBUG_PRINT("Boot: Step 1 - Initial Sweep Guard"); }
                 break;
             case BOOT_SWEEP_1_GUARD:
-                if (Sweep.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_1_BACK); Serial.println("Boot: Step 2 - Sweep Back"); }
+                if (Sweep.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_1_BACK); DEBUG_PRINT("Boot: Step 2 - Sweep Back"); }
                 break;
             case BOOT_SWEEP_1_BACK:
                 if (Sweep.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_1_GUARD_POST); }
                 break;
             case BOOT_SWEEP_1_GUARD_POST:
-                if (Sweep.isIdle()) { Deck.commandSetPins(); changeState(BOOT_DECK_CLEAR_1_WAIT); Serial.println("Boot: Step 3 - Deck Clear 1"); }
+                if (Sweep.isIdle()) { Deck.commandSetPins(); changeState(BOOT_DECK_CLEAR_1_WAIT); DEBUG_PRINT("Boot: Step 3 - Deck Clear 1"); }
                 break;
             case BOOT_DECK_CLEAR_1_WAIT:
-                if (Deck.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_2_BACK); Serial.println("Boot: Step 4 - Sweep Clear 1"); }
+                if (Deck.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_2_BACK); DEBUG_PRINT("Boot: Step 4 - Sweep Clear 1"); }
                 break;
             case BOOT_SWEEP_2_BACK:
                 if (Sweep.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_2_GUARD); }
                 break;
             case BOOT_SWEEP_2_GUARD:
-                if (Sweep.isIdle()) { changeState(BOOT_WAIT_TURRET_HOME); Serial.println("Boot: Step 5 - Waiting for Turret Home"); }
+                if (Sweep.isIdle()) { changeState(BOOT_WAIT_TURRET_HOME); DEBUG_PRINT("Boot: Step 5 - Waiting for Turret Home"); }
                 break;
             case BOOT_WAIT_TURRET_HOME:
-                if (Turret.isIdleEmpty()) { Turret.commandPurge(); changeState(BOOT_TURRET_PURGE_WAIT); Serial.println("Boot: Step 6 - Turret Purge"); }
+                if (Turret.isIdleEmpty()) { Turret.commandPurge(); changeState(BOOT_TURRET_PURGE_WAIT); DEBUG_PRINT("Boot: Step 6 - Turret Purge"); }
                 break;
             case BOOT_TURRET_PURGE_WAIT:
                 if (Turret.isDropComplete()) { changeState(BOOT_PURGE_DWELL); }
                 break;
             case BOOT_PURGE_DWELL:
-                if (millis() - _stateStart >= 1500) { Deck.commandSetPins(); changeState(BOOT_DECK_CLEAR_2_WAIT); Serial.println("Boot: Step 7 - Deck Clear 2"); }
+                if (millis() - _stateStart >= 1500) { Deck.commandSetPins(); changeState(BOOT_DECK_CLEAR_2_WAIT); DEBUG_PRINT("Boot: Step 7 - Deck Clear 2"); }
                 break;
             case BOOT_DECK_CLEAR_2_WAIT:
-                if (Deck.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_3_BACK); Serial.println("Boot: Step 8 - Sweep Clear 2"); }
+                if (Deck.isIdle()) { Sweep.commandPose(SweepController::BACK); changeState(BOOT_SWEEP_3_BACK); DEBUG_PRINT("Boot: Step 8 - Sweep Clear 2"); }
                 break;
             case BOOT_SWEEP_3_BACK:
                 if (Sweep.isIdle()) { Sweep.commandPose(SweepController::GUARD); changeState(BOOT_SWEEP_3_GUARD); }
                 break;
             case BOOT_SWEEP_3_GUARD:
-                if (Sweep.isIdle()) { changeState(BOOT_WAIT_TURRET_IDLE_1); Serial.println("Boot: Step 9 - Waiting for Turret to finish Homing"); }
+                if (Sweep.isIdle()) { changeState(BOOT_WAIT_TURRET_IDLE_1); DEBUG_PRINT("Boot: Step 9 - Waiting for Turret to finish Homing"); }
                 break;
 
             case BOOT_WAIT_TURRET_IDLE_1:
@@ -789,7 +810,7 @@ public:
                 break;
 
             case BOOT_WAIT_TURRET_9:
-                if (Turret.isPausedAt9()) { Turret.commandExecuteDropSequence(); changeState(BOOT_TURRET_PRIME_DROP); Serial.println("Boot: Dropping 10 into empty Deck."); }
+                if (Turret.isPausedAt9()) { Turret.commandExecuteDropSequence(); changeState(BOOT_TURRET_PRIME_DROP); DEBUG_PRINT("Boot: Dropping 10 into empty Deck."); }
                 break;
             case BOOT_TURRET_PRIME_DROP:
                 if (Turret.isDropComplete()) { changeState(BOOT_PRIME_DWELL); }
@@ -819,12 +840,12 @@ public:
                     Turret.commandStartRefill();
                     _throwCount = 1; 
                     changeState(WAITING_FOR_BALL); 
-                    
-                    Serial.println("Boot Complete: Ready for Throw 1."); 
+                    Wled.triggerPreset(WLED_PRESET_NORMAL);
+                    DEBUG_PRINT("Boot Complete: Ready for Throw 1."); 
                 }
                 break;
 
-            case WAITING_FOR_BALL: Wled.triggerPreset(WLED_PRESET_NORMAL); break;
+            case WAITING_FOR_BALL: break;
 
             case T1_SWEEP_GUARD_FIRST:
                 if (Sweep.isIdle()) { changeState(T1_PIN_SETTLE_WAIT); }
@@ -869,6 +890,7 @@ public:
                     _throwCount = 2; 
                     changeState(WAITING_FOR_BALL); 
                 }
+                Wled.triggerPreset(WLED_PRESET_NORMAL);
                 break;
 
             case T2_SWEEP_GUARD_FIRST:
@@ -926,6 +948,7 @@ public:
                 else if (!Turret.isHoming() && !Turret.isCommittedToDrop()) {
                     Turret.commandWake(); Door.triggerCycle(); _throwCount = 1; changeState(WAITING_FOR_BALL); 
                 }
+                Wled.triggerPreset(WLED_PRESET_NORMAL);
                 break;
 
             case RESET_WAIT_TURRET_9:
@@ -955,8 +978,15 @@ public:
             Sweep.commandPose(SweepController::UP);
             _isPaused = false;
             updateActivity();
-            Serial.println("System Waking. Sweep Raised.");
+            Wled.triggerPreset(WLED_PRESET_NORMAL);
+            DEBUG_PRINT("System Waking. Sweep Raised.");
         }
+    }
+
+    // --> NEW: Arm the fill ball when commanded by ScoreMore
+    void armFillBall() { 
+        _fillBallArmed = true; 
+        DEBUG_PRINT("Fill Ball Armed by ScoreMore: Next throw will clear the deck."); 
     }
 
     void triggerBall() {
@@ -971,22 +1001,46 @@ public:
             }
         }
 
-        if (_throwCount == 1) { Sweep.commandPose(SweepController::GUARD); changeState(T1_SWEEP_GUARD_FIRST); } 
-        else { Sweep.commandPose(SweepController::GUARD); changeState(T2_SWEEP_GUARD_FIRST); }
+        // --> NEW: Intercept the fill ball and force a Throw 2 lane clear
+        if (_fillBallArmed) {
+            DEBUG_PRINT("Fill Ball Thrown. Forcing lane clear.");
+            _fillBallArmed = false;
+            _throwCount = 1;
+            Sweep.commandPose(SweepController::GUARD);
+            changeState(T2_SWEEP_GUARD_FIRST);
+        }
+        else if (_throwCount == 1) { 
+            Sweep.commandPose(SweepController::GUARD); 
+            changeState(T1_SWEEP_GUARD_FIRST); 
+        } 
+        else { 
+            Sweep.commandPose(SweepController::GUARD); 
+            changeState(T2_SWEEP_GUARD_FIRST); 
+        }
     }
     
+    void triggerStrike() {
+        if (_opMode != MODE_NORMAL) return;
+        
+        DEBUG_PRINT("Strike Detected by ScoreMore! Aborting Throw 1 and Re-racking...");
+        _throwCount = 1; 
+        _fillBallArmed = false; // Reset fill state if a strike interrupts
+        Sweep.commandPose(SweepController::GUARD);
+        changeState(MANUAL_RESET_START); 
+    }
+
     void triggerLaneReset() {
         if (_opMode != MODE_NORMAL || _state != WAITING_FOR_BALL) {
-            Serial.println("Short Press Ignored: System is actively cycling or not in Normal Mode.");
+            DEBUG_PRINT("Short Press Ignored: System is actively cycling or not in Normal Mode.");
             return;
         }
         
         updateActivity();
-        
         _throwCount = 1; 
+        _fillBallArmed = false;
         Sweep.commandPose(SweepController::GUARD);
         changeState(MANUAL_RESET_START);
-        Serial.println("Short Press: Aborting Frame. Commencing Lane Reset Sweep.");
+        DEBUG_PRINT("Short Press: Aborting Frame. Commencing Lane Reset Sweep.");
     }
 
     void triggerMaintenanceMode() {
@@ -994,36 +1048,26 @@ public:
         _opMode = MODE_MAINT_ENTERING;
         _maintState = MAINT_START;
         Wled.triggerPreset(WLED_PRESET_MAINTENANCE);
-        Serial.println("Long Press: Entering Maintenance Mode...");
+        DEBUG_PRINT("Long Press: Entering Maintenance Mode...");
     }
 
     void exitMaintenanceMode() {
         if (_opMode != MODE_MAINT_ACTIVE) return;
-        Serial.println("Short Press: Exiting Maintenance Mode. Re-homing System...");
+        DEBUG_PRINT("Short Press: Exiting Maintenance Mode. Re-homing System...");
         
         Turret.enableStepper();
         Deck.attachSlide();
+        Turret.begin(); Deck.begin(); Sweep.begin(); Door.begin();
         
-        Turret.begin(); 
-        Deck.begin();
-        Sweep.begin();
-        Door.begin();
-        
-        _deckHasPins = false;
-        _backgroundDropActive = false;
-        _backgroundRestartPending = false;
-        _throwCount = 1;
+        _deckHasPins = false; _backgroundDropActive = false; _backgroundRestartPending = false;
+        _throwCount = 1; _fillBallArmed = false;
         
         _opMode = MODE_NORMAL;
         changeState(BOOT_INIT);
     }
-    bool isMaintenanceActive() const { 
-        return _opMode == MODE_MAINT_ACTIVE; 
-    }
-    bool isWaitingForBall() const { 
-        return _state == WAITING_FOR_BALL && !_isPaused; 
-    }
-
+    
+    bool isMaintenanceActive() const { return _opMode == MODE_MAINT_ACTIVE; }
+    bool isWaitingForBall() const { return _state == WAITING_FOR_BALL && !_isPaused; }
 
 private:
     State _state; 
@@ -1032,6 +1076,7 @@ private:
     bool _deckHasPins; 
     bool _backgroundDropActive; 
     bool _backgroundRestartPending; 
+    bool _fillBallArmed; // <-- NEW
     
     OpMode _opMode;
     MaintState _maintState;
@@ -1047,28 +1092,189 @@ private:
 GameOrchestrator Game;
 
 // ==========================================
+// 8. SCOREMORE SERIAL CONTROLLER
+// ==========================================
+class ScoreMoreController {
+public:
+    ScoreMoreController() : _index(0) {
+        _buffer[0] = '\0';
+    }
+
+    void update() {
+        while (Serial.available()) {
+            char c = Serial.read();
+
+            if (c == '\n') {
+                _buffer[_index] = '\0'; 
+                String cmd = String(_buffer);
+                cmd.trim();
+                
+                if (cmd.length() > 0) {
+                    handleCommand(cmd);
+                }
+                _index = 0;
+            } 
+            else if (c >= 32 && c <= 126) {
+                if (_index < sizeof(_buffer) - 1) {
+                    _buffer[_index++] = c;
+                } else {
+                    _index = 0; // Overflow protection
+                }
+            }
+        }
+    }
+
+    void sendResetPulse() {
+        // Sends the hardware reset command back to the PC to clear the screen
+        Serial.print("INPUT_CHANGE:"); 
+        Serial.print(SM_PINSETTER_RESET); 
+        Serial.println(":0");
+        
+        delay(50); // Minor blocking is safe here since the machine is halting to reset
+        
+        Serial.print("INPUT_CHANGE:"); 
+        Serial.print(SM_PINSETTER_RESET); 
+        Serial.println(":1");
+    }
+
+private:
+    char _buffer[100];
+    uint8_t _index;
+
+    void handleCommand(String cmd) {
+        if (cmd.length() == 1) {
+            char c = cmd[0];
+            if (c == 't') {
+                Game.updateActivity();
+                if (Game.isPaused()) Game.wakeFromPause();
+                else { Door.emergencyClose(); Game.triggerBall(); }
+            }
+            else if (c == 'r') {
+                Game.triggerLaneReset();
+                sendResetPulse(); 
+            }
+            else if (c == 'm') Game.triggerMaintenanceMode();
+            return;
+        }
+
+        if (cmd.startsWith("WRITE:")) {
+            int firstColon = cmd.indexOf(':');
+            int secondColon = cmd.indexOf(':', firstColon + 1);
+            
+            if (firstColon != -1 && secondColon != -1) {
+                int smPin = cmd.substring(firstColon + 1, secondColon).toInt();
+                int val = cmd.substring(secondColon + 1).toInt();
+
+                // --> NEW: Explicit physical mapping for Frame LEDs
+                if (smPin == SM_FIRST_BALL) {
+                    digitalWrite(FRAME_LED1_PIN, val);
+                    if (val == 1) Wled.triggerPreset(WLED_PRESET_BALL1);
+                }
+                else if (smPin == SM_SECOND_BALL) {
+                    digitalWrite(FRAME_LED2_PIN, val);
+                    if (val == 1) Wled.triggerPreset(WLED_PRESET_BALL2);
+                }
+                else if (smPin == SM_AUTO_RESET) {
+                    if (val == 1) {
+                        Game.armFillBall(); // Arm the Throw 2 cycle for the 10th frame
+                        Wled.triggerPreset(WLED_PRESET_FILL);
+                    }
+                }
+                else if (smPin == SM_STRIKE_LIGHT) {
+                    digitalWrite(smPin, val);
+                    if (val == 1) {
+                        Wled.triggerPreset(WLED_PRESET_STRIKE);
+                        Game.triggerStrike(); 
+                    }
+                }
+                else {
+                    // Standard hardware pin drive for Spare, Miss, etc.
+                    digitalWrite(smPin, val);
+                    if (val == 1) {
+                        if (smPin == SM_SPARE_LIGHT) Wled.triggerPreset(WLED_PRESET_SPARE);
+                        else if (smPin == SM_PIN_1) Wled.triggerPreset(WLED_PRESET_MISS); 
+                    }
+                }
+                
+                Serial.print("ACK_WRITE:");
+                Serial.print(smPin);
+                Serial.print(":");
+                Serial.println(val);
+            }
+        } 
+        else if (cmd.startsWith("SET_INPUT:") || cmd.startsWith("SET_OUTPUT:")) {
+            int firstColon = cmd.indexOf(':');
+            int smPin = cmd.substring(firstColon + 1).toInt();
+            
+            if (cmd.startsWith("SET_INPUT:")) {
+                pinMode(smPin, INPUT_PULLUP);
+                Serial.print("ACK_SET_INPUT:");
+            }
+            else {
+                pinMode(smPin, OUTPUT);
+                Serial.print("ACK_SET_OUTPUT:");
+            }
+            Serial.println(smPin);
+        }
+        else if (cmd == "RESET") {
+            digitalWrite(SM_STRIKE_LIGHT, LOW);
+            digitalWrite(SM_SPARE_LIGHT, LOW);
+            digitalWrite(FRAME_LED1_PIN, LOW); // <-- Updated to clear physical pins
+            digitalWrite(FRAME_LED2_PIN, LOW); // <-- Updated to clear physical pins
+            Serial.println("ACK_RESET");
+        }
+        else if (cmd == "CHECK_READY") {
+            Serial.println("READY");
+        } 
+        else if (cmd == "VERSION") {
+            Serial.println("1.0.0"); 
+        }
+        else {
+            Serial.println("ACK_UNKNOWN_COMMAND");
+        }
+    }
+};
+
+ScoreMoreController ScoreMoreSerial;
+
+// ==========================================
 // MAIN ARDUINO HOOKS
 // ==========================================
 void setup() {
-    Serial.begin(115200);
-    Serial1.begin(115200);
+    Serial.begin(SCOREMORE_BAUD);
+    Serial1.begin(115200); // WLED Serial
     delay(1000);
+    
+    #if SCOREMORE_USER == 1
+        waitForScoreMore();
+    #endif
+
+    Serial.println("READY"); // CRITICAL: ScoreMore Handshake
+
+    pinMode(FRAME_LED1_PIN, OUTPUT);
+    pinMode(FRAME_LED2_PIN, OUTPUT);
+    digitalWrite(FRAME_LED1_PIN, LOW);
+    digitalWrite(FRAME_LED2_PIN, LOW);
     
     LeftRaiseServo.attach(RAISE_LEFT_PIN); RightRaiseServo.attach(RAISE_RIGHT_PIN);
     SlideServo.attach(SLIDE_PIN); ScissorsServo.attach(SCISSOR_PIN);
     LeftSweepServo.attach(LEFT_SWEEP_PIN); RightSweepServo.attach(RIGHT_SWEEP_PIN);
     BallReturnServo.attach(BALL_RETURN_PIN);
     
-    Sweep.begin(); Deck.begin(); Turret.begin(); Door.begin(); BallSensor.begin(); ResetBtn.begin();Wled.begin();
+    Sweep.begin(); Deck.begin(); Turret.begin(); Door.begin(); BallSensor.begin(); ResetBtn.begin();
     Wled.begin();
-    Serial.println("Waiting 3 seconds for WLED to Boot...");
+    
+    DEBUG_PRINT("Waiting 3 seconds for WLED to Boot...");
     delay(3000); // Give ESP32 time to wake up
     Wled.triggerPreset(WLED_PRESET_BOOTING);
-    Serial.println("Automated Kinematics Booted. Starting Dance.");
+    DEBUG_PRINT("Automated Kinematics Booted. Starting Dance.");
 }
 
 void loop() {
     Turret.update(); Sweep.update(); Deck.update(); Door.update(); Game.update(); 
+    
+    // Process incoming serial strings non-stop
+    ScoreMoreSerial.update(); 
 
     ButtonController::Event btnEvent = ResetBtn.update();
     if (btnEvent == ButtonController::SHORT_PRESS) {
@@ -1078,6 +1284,7 @@ void loop() {
             Game.wakeFromPause();
         } else {
             Game.triggerLaneReset();
+            ScoreMoreSerial.sendResetPulse(); // Tell PC that lane was reset
         }
     } else if (btnEvent == ButtonController::LONG_PRESS) {
         Game.triggerMaintenanceMode();
@@ -1088,24 +1295,9 @@ void loop() {
         if (Game.isPaused()) {
             Game.wakeFromPause();
         } else {
-            Serial.println("HARDWARE TRIGGER: IR Beam Broken by Ball!");
+            DEBUG_PRINT("HARDWARE TRIGGER: IR Beam Broken by Ball!");
             Door.emergencyClose(); 
             Game.triggerBall();
-        }
-    }
-
-    if (Serial.available() > 0) {
-        char c = Serial.read();
-        if (c == 't') {
-            Game.updateActivity();
-            if (Game.isPaused()) Game.wakeFromPause();
-            else { Door.emergencyClose(); Game.triggerBall(); }
-        }
-        if (c == 'r') {
-            Game.triggerLaneReset();
-        }
-        if (c == 'm') {
-            Game.triggerMaintenanceMode();
         }
     }
 }
