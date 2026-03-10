@@ -17,6 +17,16 @@
   #include "general_config.h"
 #endif
 
+#ifdef USE_NATIVE_LEDS
+  #include <Adafruit_NeoPixel.h>  
+  // Construct the 4 independent strip objects using your defined macros
+  Adafruit_NeoPixel deckL(DECK_LED_LENGTH_L, DECK_PIN_L, NEO_GRB + NEO_KHZ800);
+  Adafruit_NeoPixel deckR(DECK_LED_LENGTH_R, DECK_PIN_R, NEO_GRB + NEO_KHZ800);
+  Adafruit_NeoPixel laneL(LANE_LED_LENGTH_L, LANE_PIN_L, NEO_GRB + NEO_KHZ800);
+  Adafruit_NeoPixel laneR(LANE_LED_LENGTH_R, LANE_PIN_R, NEO_GRB + NEO_KHZ800);
+#endif
+
+
 #if DEBUG_TURRET
   #define DEBUG_PRINT(x) Serial.println(x)
   #define tPrint(x) Serial.println(String("TURRET: ") + x)
@@ -1242,7 +1252,15 @@ ScoreMoreController ScoreMoreSerial;
 // ==========================================
 void setup() {
     Serial.begin(SCOREMORE_BAUD);
-    Serial1.begin(115200); // WLED Serial
+    #ifdef USE_NATIVE_LEDS
+    // Todo: Initialize Native Pins
+    //deckL.begin(); deckR.begin(); laneL.begin(); laneR.begin();    
+    // Push the initial 'off' state to clear any residual data
+    //deckL.show(); deckR.show(); laneL.show(); laneR.show();
+    #else
+      // Initialize WLED Serial Logic
+      Serial1.begin(115200);
+    #endif
     delay(1000);
     
     #if SCOREMORE_USER == 1
