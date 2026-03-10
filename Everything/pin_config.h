@@ -14,7 +14,7 @@
 #define STEP_PIN        A0 // PIN 2 reserved for ball sensor
 #endif
 #ifndef DIR_PIN
-#define DIR_PIN         A1 // PIN 3 reserved for ball sensor
+#define DIR_PIN         A1 // PIN 3 reserved for ball speed sensor
 #endif
 #ifndef STEPPER_ENABLE_PIN
 #define STEPPER_ENABLE_PIN         49
@@ -129,7 +129,7 @@
 #define SM_PIN_8            17
 #endif
 #ifndef SM_PIN_9
-#define SM_PIN_9            18
+#define SM_PIN_9            21  //pin 18 reserved for serial1 coms.
 #endif
 #ifndef SM_PIN_10
 #define SM_PIN_10           19
