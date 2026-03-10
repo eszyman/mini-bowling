@@ -201,6 +201,8 @@ flowchart LR
     class Mega_Node,Orchestrator,SM_Class,WLED_Class mega;
     class ESP_Node,WLED_Core,LEDs esp;
 ```
+Since this requires more hardware, an alternative simple approach is also being sought after to natively use 'Adafruit_NeoPixel.h' for very simple lighting effect.
+Unfortunately, these lighting effects will always be simple as to not conflict with the FSM logic unless different hardware is used.
 ---
 
 ## 3. Subsystem Breakdown
