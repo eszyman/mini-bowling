@@ -37,10 +37,10 @@
 #define HALL_EFFECT_PIN     6   // Hall effect sensor for turret homing
 #endif
 #ifndef BALL_SENSOR_PIN
-#define BALL_SENSOR_PIN     A0  // Ball detection sensor (trigger)
+#define BALL_SENSOR_PIN     2  // Ball detection sensor (use HW interupt pin!)
 #endif
 #ifndef BALL_SPEED_PIN
-#define BALL_SPEED_PIN      A1  // Ball speed sensor
+#define BALL_SPEED_PIN      3  // Ball speed sensor (use HW interupt pin!)
 #endif
 
 // =====================================================
