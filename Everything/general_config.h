@@ -7,7 +7,7 @@
 // =====================================================
 // DEBUG AND SENSOR TUNING
 // =====================================================
-#define DEBUG_TURRET 1          // Set to 0 to disable turret serial prints
+#define DEBUG_TURRET 0          // Set to 0 to disable turret serial prints
 
 // =====================================================
 // SCOREMORE SERIAL BAUD RATE & CONFIG
