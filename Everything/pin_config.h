@@ -11,13 +11,13 @@
 // STEPPER MOTOR PINS
 // =====================================================
 #ifndef STEP_PIN
-#define STEP_PIN        A0 // PIN 2 reserved for ball sensor
+#define STEP_PIN       2 // A0 // PIN 2 reserved for ball sensor
 #endif
 #ifndef DIR_PIN
-#define DIR_PIN         A1 // PIN 3 reserved for ball speed sensor
+#define DIR_PIN        3 // A1 // PIN 3 reserved for ball speed sensor
 #endif
 #ifndef STEPPER_ENABLE_PIN
-#define STEPPER_ENABLE_PIN         49
+#define STEPPER_ENABLE_PIN         22 / 49
 #endif
 
 // =====================================================
@@ -37,10 +37,10 @@
 #define HALL_EFFECT_PIN     6   // Hall effect sensor for turret homing
 #endif
 #ifndef BALL_SENSOR_PIN
-#define BALL_SENSOR_PIN     2  // Ball detection sensor (use HW interupt pin!)
+#define BALL_SENSOR_PIN     A0 // 2 // Ball detection sensor (use HW interupt pin!)
 #endif
 #ifndef BALL_SPEED_PIN
-#define BALL_SPEED_PIN      3  // Ball speed sensor (use HW interupt pin!)
+#define BALL_SPEED_PIN      A1 // 3 // Ball speed sensor (use HW interupt pin!)
 #endif
 
 // =====================================================
@@ -129,7 +129,7 @@
 #define SM_PIN_8            17
 #endif
 #ifndef SM_PIN_9
-#define SM_PIN_9            21  //pin 18 reserved for serial1 coms.
+#define SM_PIN_9            21  //pin 18 reserved for Serial1 coms.
 #endif
 #ifndef SM_PIN_10
 #define SM_PIN_10           19
