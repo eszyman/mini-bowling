@@ -159,8 +159,10 @@ stateDiagram-v2
 
 LED animations are offloaded to an external ESP-WROOM32 board running WLED. The primary Arduino commands this board using a "fire-and-forget" JSON API over `Serial1`.
 
-Driving WS2812B NeoPixel strips directly from the primary microcontroller requires disabling hardware interrupts while data is pushed down the strip. Given the length of the lane and deck strips, this process would block the CPU for several milliseconds, breaking the AccelStepper pulse timing (causing lost steps) and creating blind spots for the ball trigger ISRs. Offloading the LEDs allows the Arduino Mega to focus entirely on real-time kinematics and game state FSM execution.
+Driving WS2812B NeoPixel strips directly from the primary microcontroller requires disabling hardware interrupts while data is pushed down the strip. Given the length of the lane and deck strips, this process would block the CPU for several milliseconds, breaking the AccelStepper pulse timing (causing lost steps) and creating blind spots for the ball trigger ISRs. Offloading the LEDs allows the Arduino Mega to focus entirely on real-time kinematics and game state FSM execution.  See [link](./ESP32_wiring.md) for more wiring information.
 
+> Since this requires more hardware, an alternative simple approach is also being sought after to natively use 'Adafruit_NeoPixel.h' for very simple lighting effect.
+> Unfortunately, these lighting effects will always be simple because the led command block interrupts which confolicts with the FSM logic on current hardware.
 ```mermaid
 flowchart LR
     %% Styling
@@ -201,8 +203,7 @@ flowchart LR
     class Mega_Node,Orchestrator,SM_Class,WLED_Class mega;
     class ESP_Node,WLED_Core,LEDs esp;
 ```
-Since this requires more hardware, an alternative simple approach is also being sought after to natively use 'Adafruit_NeoPixel.h' for very simple lighting effect.
-Unfortunately, these lighting effects will always be simple as to not conflict with the FSM logic unless different hardware is used.
+
 ---
 
 ## 3. Subsystem Breakdown
