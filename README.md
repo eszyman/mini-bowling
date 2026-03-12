@@ -1,6 +1,6 @@
 # 3D Printed Mini Bowling Alley: Pinsetter Controller
 
-This repository contains the core logic for a state-driven, decoupled pinsetter architecture. The primary execution logic resides in the main `.ino` file, while hardware assignments and tuning variables are isolated in `pin_config.h` and `general_config.h`.   The the number of changes needed from the original script was minimized, however some pin out changes were required on the Arduino Mega board.  Please see the summary [here](./pin_changes.md).
+This repository contains the core logic for a state-driven, decoupled pinsetter architecture. The primary execution logic resides in the main `.ino` file, while hardware assignments and tuning variables are isolated in `pin_config.h` and `general_config.h`.   The the number of changes needed from the original script was minimized, however some pin out changes were required on the Arduino Mega board.  Please see the summary [here](./docs/pin_changes.md).
 
 ```mermaid
 flowchart LR
@@ -178,7 +178,7 @@ flowchart TB
 
 LED animations are offloaded to an external ESP-WROOM32 board running WLED. The primary Arduino commands this board using a "fire-and-forget" JSON API over `Serial1`.
 
-Driving WS2812B NeoPixel strips directly from the primary microcontroller requires disabling hardware interrupts while data is pushed down the strip. Given the length of the lane and deck strips, this process would block the CPU for several milliseconds, breaking the AccelStepper pulse timing (causing lost steps) and creating blind spots for the ball trigger ISRs. Offloading the LEDs allows for not only cool effects that can be customized from your smart phone but this also allows the Arduino Mega to focus entirely on real-time kinematics and game state FSM execution.  See [link](./ESP32_wiring.md) for more wiring information.
+Driving WS2812B NeoPixel strips directly from the primary microcontroller requires disabling hardware interrupts while data is pushed down the strip. Given the length of the lane and deck strips, this process would block the CPU for several milliseconds, breaking the AccelStepper pulse timing (causing lost steps) and creating blind spots for the ball trigger ISRs. Offloading the LEDs allows for not only cool effects that can be customized from your smart phone but this also allows the Arduino Mega to focus entirely on real-time kinematics and game state FSM execution.  See [link](./docs/ESP32_wiring.md) for more wiring information.
 
 > Since this requires more hardware, an alternative simple approach has now been implemented to natively use 'Adafruit_NeoPixel.h' for very simple lighting effects.
 > Unfortunately, these lighting effects will always be simple because the led commands block interrupts which confolicts with the FSM logic on current hardware.
