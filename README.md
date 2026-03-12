@@ -1,6 +1,6 @@
 # 3D Printed Mini Bowling Alley: Pinsetter Controller
 
-This repository contains the core logic for a state-driven, decoupled pinsetter architecture. The primary execution logic resides in the main `.ino` file, while hardware assignments and tuning variables are isolated in `pin_config.h` and `general_config.h`.   The the number of changes needed from the original script was minimized, however some pin out changes were required on the Arduino Mega board.  Please see the summary [here](./docs/pin_changes.md).
+This repository contains the core logic for a state-driven, decoupled pinsetter architecture. The primary execution logic resides in the main `.ino` file, while hardware assignments and tuning variables are isolated in `pin_config.h` and `general_config.h`.   The the number of changes needed from the original script were minimized, however some pin out changes are required on the Arduino Mega board.  Please see the summary [here](./docs/pin_changes.md).
 
 ```mermaid
 flowchart LR
