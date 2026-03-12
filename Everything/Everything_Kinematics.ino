@@ -635,7 +635,114 @@ private:
 };
 
 // ==========================================
-// 7. WLED CONTROLLER (Fire & Forget JSON API)
+// 7. LED CONTROLLER (Native or WLED API)
+// ==========================================
+#ifdef USE_NATIVE_LEDS
+class NativeLedController {
+public:
+    enum State { NORMAL, STRIKE, PAUSED, FILL, COMET };
+    NativeLedController() : _state(NORMAL), _animStart(0), _lastFrame(0) {}
+
+    void begin() {
+        deckL.begin(); deckR.begin(); laneL.begin(); laneR.begin();
+        deckL.setBrightness(DECK_LED_BRIGHTNESS);
+        deckR.setBrightness(DECK_LED_BRIGHTNESS);
+        laneL.setBrightness(LED_BRIGHTNESS_NORMAL);
+        laneR.setBrightness(LED_BRIGHTNESS_NORMAL);
+        changeState(NORMAL);
+    }
+
+    void triggerPreset(int presetId) {
+        if (presetId == WLED_PRESET_NORMAL) changeState(NORMAL);
+        else if (presetId == WLED_PRESET_STRIKE) changeState(STRIKE);
+        else if (presetId == WLED_PRESET_PAUSE) changeState(PAUSED);
+        else if (presetId == WLED_PRESET_FILL) changeState(FILL);
+        else if (presetId == WLED_PRESET_THROW) changeState(COMET);
+        // Fallback for BOOTING/MAINTENANCE/SPARE is to do nothing (maintain current state)
+    }
+    
+    void setPower(bool on) {
+        if (!on) { setAll(0, 0, 0); showAll(); }
+        else { changeState(_state); } // Restore current state
+    }
+
+    void update() {
+        unsigned long now = millis();
+        
+        if (_state == STRIKE) {
+            unsigned long elapsed = now - _animStart;
+            if (elapsed >= 1000) { 
+                changeState(NORMAL); 
+            } else {
+                // 3 flashes over 1000ms = 6 toggle phases of ~166ms each
+                int phase = elapsed / (1000 / 6);
+                if (phase % 2 == 0) setAll(255, 0, 0); // Red
+                else setAll(0, 0, 0);                  // Off
+                showAll();
+            }
+        }
+        else if (_state == COMET) {
+            unsigned long elapsed = now - _animStart;
+            if (elapsed >= BALL_COMET_MS) { 
+                changeState(NORMAL); 
+            } else if (now - _lastFrame >= BALL_COMET_FRAME_MS) {
+                _lastFrame = now;
+                float t = (float)elapsed / (float)BALL_COMET_MS;
+                
+                // Clear lanes (Off)
+                for(int i = 0; i < LANE_LED_LENGTH_L; i++) laneL.setPixelColor(i, 0);
+                for(int i = 0; i < LANE_LED_LENGTH_R; i++) laneR.setPixelColor(i, 0);
+                
+                // Keep decks white
+                for(int i = 0; i < DECK_LED_LENGTH_L; i++) deckL.setPixelColor(i, deckL.Color(255, 255, 255));
+                for(int i = 0; i < DECK_LED_LENGTH_R; i++) deckR.setPixelColor(i, deckR.Color(255, 255, 255));
+
+                int maxIndexL = LANE_LED_LENGTH_L + COMET_LEN;
+                int maxIndexR = LANE_LED_LENGTH_R + COMET_LEN;
+                int headL = (int)(t * maxIndexL + 0.5f);
+                int headR = (int)(t * maxIndexR + 0.5f);
+
+                for(int k = 0; k < COMET_LEN; k++) {
+                    int idxL = headL - k;
+                    int idxR = headR - k;
+                    if(idxL >= 0 && idxL < LANE_LED_LENGTH_L) laneL.setPixelColor(idxL, laneL.Color(255, 255, 255));
+                    if(idxR >= 0 && idxR < LANE_LED_LENGTH_R) laneR.setPixelColor(idxR, laneR.Color(255, 255, 255));
+                }
+                showAll();
+            }
+        }
+    }
+
+private:
+    State _state;
+    unsigned long _animStart;
+    unsigned long _lastFrame;
+
+    void changeState(State s) {
+        _state = s;
+        _animStart = millis();
+        _lastFrame = 0;
+        
+        if (s == NORMAL) { setAll(255, 255, 255); showAll(); }      // All White
+        else if (s == PAUSED) { setAll(0, 0, 50); showAll(); }      // Dim Blue
+        else if (s == FILL) { setAll(0, 255, 0); showAll(); }       // All Green
+    }
+
+    void setAll(uint8_t r, uint8_t g, uint8_t b) {
+        for(int i=0; i<DECK_LED_LENGTH_L; i++) deckL.setPixelColor(i, deckL.Color(r,g,b));
+        for(int i=0; i<DECK_LED_LENGTH_R; i++) deckR.setPixelColor(i, deckR.Color(r,g,b));
+        for(int i=0; i<LANE_LED_LENGTH_L; i++) laneL.setPixelColor(i, laneL.Color(r,g,b));
+        for(int i=0; i<LANE_LED_LENGTH_R; i++) laneR.setPixelColor(i, laneR.Color(r,g,b));
+    }
+    
+    void showAll() {
+        deckL.show(); deckR.show(); laneL.show(); laneR.show();
+    }
+};
+
+#else
+// WLED Fallback Class (Fire & Forget JSON API)
+// ==========================================
 // Configurable Hardware Serial implementation.
 // Recommended wiring: Mega TX1 (Pin 18) -> ESP8266 RX
 // Preset definitions are located in general_config.h
@@ -653,21 +760,23 @@ public:
         _serial.print("{\"ps\":");
         _serial.print(presetId);
         _serial.println("}");
-        
         tPrint("WLED: Fired Preset " + String(presetId));
     }
     
     void setPower(bool on) {
-        if (on) {
-            _serial.println("{\"on\":true}");
-        } else {
-            _serial.println("{\"on\":false}");
-        }
+        if (on) _serial.println("{\"on\":true}");
+        else _serial.println("{\"on\":false}");
+    }
+    
+    void update() { 
+        // WLED handles its own animations, so this is non-blocking empty logic
     }
 
 private:
     HardwareSerial& _serial; 
 };
+#endif
+
 
 // ==========================================
 // CONTROLLER INSTANTIATIONS
@@ -678,7 +787,11 @@ DeckController Deck(LeftRaiseServo, RightRaiseServo, SlideServo, ScissorsServo);
 BallReturnController Door(BallReturnServo, MOTOR_RELAY_PIN);
 BallSensorController BallSensor(BALL_SPEED_PIN, BALL_SENSOR_PIN);
 ButtonController ResetBtn(PINSETTER_RESET_PIN);
+#ifdef USE_NATIVE_LEDS
+NativeLedController Wled;
+#else
 WledController Wled(Serial1);
+#endif
 
 // ==========================================
 // GAME ORCHESTRATOR FSM
@@ -1290,7 +1403,8 @@ void setup() {
 
 void loop() {
     Turret.update(); Sweep.update(); Deck.update(); Door.update(); Game.update(); 
-    
+    // Update the LEDs either with neopixel natively or with a WLED controller:
+    Wled.update();
     // Process incoming serial strings non-stop
     ScoreMoreSerial.update(); 
 
