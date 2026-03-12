@@ -857,7 +857,7 @@ public:
             }
             return; 
         }
-        
+
         if (_opMode == MODE_MAINT_ACTIVE) return; 
 
         if (_state == WAITING_FOR_BALL && !Turret.isHoming() && !_isPaused) {
@@ -963,7 +963,7 @@ public:
                     Turret.commandStartRefill();
                     _throwCount = 1; 
                     changeState(WAITING_FOR_BALL); 
-                    Wled.triggerPreset(WLED_PRESET_NORMAL);
+                    updateFrameLights();
                     DEBUG_PRINT("Boot Complete: Ready for Throw 1."); 
                 }
                 break;
@@ -1013,7 +1013,7 @@ public:
                     _throwCount = 2; 
                     changeState(WAITING_FOR_BALL); 
                 }
-                Wled.triggerPreset(WLED_PRESET_NORMAL);
+                updateFrameLights();
                 break;
 
             case T2_SWEEP_GUARD_FIRST:
@@ -1071,7 +1071,7 @@ public:
                 else if (!Turret.isHoming() && !Turret.isCommittedToDrop()) {
                     Turret.commandWake(); Door.triggerCycle(); _throwCount = 1; changeState(WAITING_FOR_BALL); 
                 }
-                Wled.triggerPreset(WLED_PRESET_NORMAL);
+                updateFrameLights();
                 break;
 
             case RESET_WAIT_TURRET_9:
@@ -1093,15 +1093,34 @@ public:
         }
     }
 
+    void updateFrameLights() {
+        // 1. Set physical hardware lights based strictly on throw count
+        if (_throwCount == 2) {
+            digitalWrite(FRAME_LED1_PIN, HIGH);
+            digitalWrite(FRAME_LED2_PIN, HIGH);
+        } else {
+            digitalWrite(FRAME_LED1_PIN, HIGH);
+            digitalWrite(FRAME_LED2_PIN, LOW);
+        }
+        // 2. Transmit exactly one WLED preset based on priority
+        if (_fillBallArmed) {
+            Wled.triggerPreset(WLED_PRESET_FILL);
+        } else if (_throwCount == 2) {
+            Wled.triggerPreset(WLED_PRESET_BALL2);
+        } else {
+            Wled.triggerPreset(WLED_PRESET_BALL1);
+        }
+    }
+
     void updateActivity() { _lastActivityMs = millis(); }
     bool isPaused() const { return _isPaused; }
-    
+
     void wakeFromPause() {
         if (_isPaused) {
             Sweep.commandPose(SweepController::UP);
             _isPaused = false;
             updateActivity();
-            Wled.triggerPreset(WLED_PRESET_NORMAL);
+            updateFrameLights();
             DEBUG_PRINT("System Waking. Sweep Raised.");
         }
     }
@@ -1109,13 +1128,17 @@ public:
     // --> NEW: Arm the fill ball when commanded by ScoreMore
     void armFillBall() { 
         _fillBallArmed = true; 
+        updateFrameLights(); // Fire the preset immediately
         DEBUG_PRINT("Fill Ball Armed by ScoreMore: Next throw will clear the deck."); 
+    }
+
+    void clearFillBall() {
+        _fillBallArmed = false;
     }
 
     void triggerBall() {
         updateActivity();
         if (_state != WAITING_FOR_BALL) return;
-
         Wled.triggerPreset(WLED_PRESET_THROW);
 
         if (_backgroundDropActive) {
@@ -1124,20 +1147,14 @@ public:
             }
         }
 
-        // --> NEW: Intercept the fill ball and force a Throw 2 lane clear
-        if (_fillBallArmed) {
-            DEBUG_PRINT("Fill Ball Thrown. Forcing lane clear.");
-            _fillBallArmed = false;
-            _throwCount = 1;
+        // Let the machine behave naturally based on _throwCount.
+        // Strike aborts are handled asynchronously by triggerStrike().
+        if (_throwCount == 1) { 
             Sweep.commandPose(SweepController::GUARD);
-            changeState(T2_SWEEP_GUARD_FIRST);
-        }
-        else if (_throwCount == 1) { 
-            Sweep.commandPose(SweepController::GUARD); 
             changeState(T1_SWEEP_GUARD_FIRST); 
         } 
         else { 
-            Sweep.commandPose(SweepController::GUARD); 
+            Sweep.commandPose(SweepController::GUARD);
             changeState(T2_SWEEP_GUARD_FIRST); 
         }
     }
@@ -1147,7 +1164,7 @@ public:
         
         DEBUG_PRINT("Strike Detected by ScoreMore! Aborting Throw 1 and Re-racking...");
         _throwCount = 1; 
-        _fillBallArmed = false; // Reset fill state if a strike interrupts
+        // REMOVED _fillBallArmed = false; // Reset fill state if a strike interrupts
         Sweep.commandPose(SweepController::GUARD);
         changeState(MANUAL_RESET_START); 
     }
@@ -1184,6 +1201,9 @@ public:
         
         _deckHasPins = false; _backgroundDropActive = false; _backgroundRestartPending = false;
         _throwCount = 1; _fillBallArmed = false;
+
+        // Reset the inactivity timer to prevent immediate pausing
+        updateActivity();
         
         _opMode = MODE_NORMAL;
         changeState(BOOT_INIT);
@@ -1290,16 +1310,18 @@ private:
 
                 // --> NEW: Explicit physical mapping for Frame LEDs
                 if (smPin == SM_FIRST_BALL) {
-                    digitalWrite(FRAME_LED1_PIN, val);
-                    if (val == 1) Wled.triggerPreset(WLED_PRESET_BALL1);
+                    // Decoupled: Now Managed by GameOrchestrator
+                    //digitalWrite(FRAME_LED1_PIN, val);
+                    //if (val == 1) Wled.triggerPreset(WLED_PRESET_BALL1);
                 }
                 else if (smPin == SM_SECOND_BALL) {
-                    digitalWrite(FRAME_LED2_PIN, val);
-                    if (val == 1) Wled.triggerPreset(WLED_PRESET_BALL2);
+                    // Decoupled: Now Managed by GameOrchestrator
+                    //digitalWrite(FRAME_LED2_PIN, val);
+                    //if (val == 1) Wled.triggerPreset(WLED_PRESET_BALL2);
                 }
                 else if (smPin == SM_AUTO_RESET) {
                     if (val == 1) {
-                        Game.armFillBall(); // Arm the Throw 2 cycle for the 10th frame
+                        Game.armFillBall(); // Arm the Throw 2 cycle for the 5th/10th frame
                         Wled.triggerPreset(WLED_PRESET_FILL);
                     }
                 }
@@ -1342,8 +1364,10 @@ private:
         else if (cmd == "RESET") {
             digitalWrite(SM_STRIKE_LIGHT, LOW);
             digitalWrite(SM_SPARE_LIGHT, LOW);
-            digitalWrite(FRAME_LED1_PIN, LOW); // <-- Updated to clear physical pins
-            digitalWrite(FRAME_LED2_PIN, LOW); // <-- Updated to clear physical pins
+            // Decoupled: Managed by GameOrchestrator
+            //digitalWrite(FRAME_LED1_PIN, LOW); 
+            //digitalWrite(FRAME_LED2_PIN, LOW); 
+            Game.clearFillBall();
             Serial.println("ACK_RESET");
         }
         else if (cmd == "CHECK_READY") {
