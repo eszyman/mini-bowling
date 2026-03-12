@@ -155,14 +155,23 @@ stateDiagram-v2
 
 ---
 
-## 2. Distributed Processing: WLED Integration
+## 2. Distributed Processing: Why WLED Integration?
 
 LED animations are offloaded to an external ESP-WROOM32 board running WLED. The primary Arduino commands this board using a "fire-and-forget" JSON API over `Serial1`.
 
-Driving WS2812B NeoPixel strips directly from the primary microcontroller requires disabling hardware interrupts while data is pushed down the strip. Given the length of the lane and deck strips, this process would block the CPU for several milliseconds, breaking the AccelStepper pulse timing (causing lost steps) and creating blind spots for the ball trigger ISRs. Offloading the LEDs allows the Arduino Mega to focus entirely on real-time kinematics and game state FSM execution.  See [link](./ESP32_wiring.md) for more wiring information.
+Driving WS2812B NeoPixel strips directly from the primary microcontroller requires disabling hardware interrupts while data is pushed down the strip. Given the length of the lane and deck strips, this process would block the CPU for several milliseconds, breaking the AccelStepper pulse timing (causing lost steps) and creating blind spots for the ball trigger ISRs. Offloading the LEDs allows for not only cool effects that can be customized from your smart phone but this also allows the Arduino Mega to focus entirely on real-time kinematics and game state FSM execution.  See [link](./ESP32_wiring.md) for more wiring information.
 
-> Since this requires more hardware, an alternative simple approach is also being sought after to natively use 'Adafruit_NeoPixel.h' for very simple lighting effect.
-> Unfortunately, these lighting effects will always be simple because the led command block interrupts which confolicts with the FSM logic on current hardware.
+> Since this requires more hardware, an alternative simple approach has now been implemented to natively use 'Adafruit_NeoPixel.h' for very simple lighting effects.
+> Unfortunately, these lighting effects will always be simple because the led commands block interrupts which confolicts with the FSM logic on current hardware.
+>
+> Mixing Adafruit_NeoPixel and Servo on an AVR microcontroller creates a direct hardware conflict.
+>
+> The WS2812B data protocol lacks a clock line and relies on precise microsecond timing. To prevent data corruption, the Adafruit_NeoPixel library calls cli() to disable all global interrupts when pushing data to the strip.
+> Updating 104 LEDs requires roughly 30 microseconds per LED. Every time .showAll() executes, interrupts are blocked for approximately 3.12 milliseconds.
+> 
+> The standard Servo library relies on a hardware timer interrupt firing every 20 milliseconds to generate 1ms to 2ms pulses for the 7 active servos. When .showAll() executes rapidly during the COMET or STRIKE animations, it repeatedly blinds the CPU to these timer interrupts. The servos will receive truncated or stretched PWM pulses, resulting in jitter or uncommanded movement.  
+> If this is a problem, please report the issue and more basic sequence will be implemented.
+
 ```mermaid
 flowchart LR
     %% Styling
