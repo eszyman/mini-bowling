@@ -71,6 +71,15 @@
 #ifndef WLED_PRESET_FILL
 #define WLED_PRESET_FILL        8   // Fill ball (Deck clear)
 #endif
+#ifndef WLED_PRESET_BALL1
+#define WLED_PRESET_BALL1       9   // Ready Ball 1
+#endif
+#ifndef WLED_PRESET_BALL2
+#define WLED_PRESET_BALL2      10   // Ready Ball 2
+#endif
+#ifndef WLED_PRESET_MISS
+#define WLED_PRESET_MISS       11   // Missed shot (scoremore support needed)
+#endif
 
 // =====================================================
 // CONVEYOR SETTINGS
