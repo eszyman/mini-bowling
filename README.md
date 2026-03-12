@@ -1,6 +1,6 @@
 # 3D Printed Mini Bowling Alley: Pinsetter Controller
 
-This repository contains the core logic for a state-driven, decoupled pinsetter architecture. The primary execution logic resides in the main `.ino` file, while hardware assignments and tuning variables are isolated in `pin_config.h` and `general_config.h`.   The the number of changes needed from the original script was minimize, however some pin out changes were required on the Arduino Mega board.  Please see the summary [here](./pin_changes.md).
+This repository contains the core logic for a state-driven, decoupled pinsetter architecture. The primary execution logic resides in the main `.ino` file, while hardware assignments and tuning variables are isolated in `pin_config.h` and `general_config.h`.   The the number of changes needed from the original script was minimized, however some pin out changes were required on the Arduino Mega board.  Please see the summary [here](./pin_changes.md).
 
 ```mermaid
 flowchart LR
@@ -25,11 +25,12 @@ flowchart LR
         SCtrl[Sweep Controller]
         BRCtrl[Ball Return Controller]
         BSCtrl[Ball Sensor Controller]
-        WCtrl[WLED Controller]
+        WCtrl[LED Controller<br>Native or WLED API]
         SMCtrl[ScoreMore Controller]
 
         %% Orchestrator commands the subsystems
         Orchestrator --> TCtrl & DCtrl & SCtrl & BRCtrl
+        Orchestrator -->|Trigger Presets| WCtrl
         BSCtrl -->|Trigger Events| Orchestrator
         SMCtrl -->|Serial Commands| Orchestrator
         ResetBtn -->|Debounced Events| Orchestrator
@@ -63,16 +64,20 @@ flowchart LR
     %% Routing Controllers to Actuators
     TCtrl --> Stepper
     TCtrl --> Relay
-    BRCtrl -.->|Monitors/Shares| Relay
     DCtrl --> DeckServos
     SCtrl --> SweepServos
     BRCtrl --> DoorServo
     SMCtrl --> LogicPins
+    Orchestrator --> LogicPins
 
-    %% External Communications
-    WCtrl -->|Serial1 TX 115200 Baud| ESP32
-    ESP32 --> Strips
+    %% External Communications & Outbound Serial
     SMCtrl <-->|Serial USB 9600 Baud| PC
+    BSCtrl -->|Hardware Triggers| PC
+    
+    %% Dual LED Architecture Paths
+    WCtrl -.->|If USE_NATIVE_LEDS| Strips
+    WCtrl -.->|If WLED Fallback| ESP32
+    ESP32 -.-> Strips
     
     %% Styling
     classDef hardware fill:#2b2b2b,stroke:#555,stroke-width:2px,color:#fff;
@@ -97,60 +102,74 @@ This short loop time is a strict mechanical necessity for three reasons:
 
 When a subsystem needs to wait (e.g., waiting for a servo tween or pin settling), it logs the current `millis()` timestamp, updates its state, and yields control back to the main loop until the target duration has elapsed.
 ```mermaid
-stateDiagram-v2
-    %% Operational Modes (GameOrchestrator::_opMode)
-    [*] --> BOOTING : System Startup (Preset Booting)
-    BOOTING --> WAITING_FOR_BALL : Complete / Home (Throw 1 Ready, Preset Normal)
+flowchart TB
+    %% Styling definitions
+    classDef idle fill:#1b262c,stroke:#3282b8,stroke-width:2px,color:#fff;
+    classDef cycle fill:#0f4c75,stroke:#fff,stroke-width:1px,color:#fff;
+    classDef drop fill:#1a5f7a,stroke:#fff,stroke-width:1px,color:#fff;
+    classDef alert fill:#e43f5a,stroke:#fff,stroke-width:2px,color:#fff;
 
-    %% Gameplay Loop (Mode: NORMAL, Transitions handle _throwCount)
-    WAITING_FOR_BALL --> Throw1Cycle : Ball Sensed / Serial 't' (_throwCount == 1)
-    WAITING_FOR_BALL --> Throw2Cycle : Ball Sensed / Serial 't' (_throwCount == 2 OR _fillBallArmed)
-    WAITING_FOR_BALL --> ResetCycle : Strike Sensed / Lane Reset Button / Serial 'r'
+    %% Entry Point
+    Start((Power On)) --> Boot[BOOT_INIT<br>Initialize Kinematics]:::idle
+    Boot --> Wait{WAITING_FOR_BALL}:::idle
 
-    Throw1Cycle --> WAITING_FOR_BALL : Complete (Ready Throw 2, Trigger Ball Door)
-    Throw2Cycle --> WAITING_FOR_BALL : Complete (Set Pins, Ready Throw 1, Trigger Ball Door)
-    ResetCycle --> WAITING_FOR_BALL : Complete (Set Pins, Ready Throw 1)
+    %% Idle Timeout Routine
+    Wait -.->|120s Timeout| Pause[PAUSED<br>Sweep Guard Active]:::idle
+    Pause -.->|Wake Event| Wait
 
-    %% Idle States / Transitions (IsPaused context)
-    WAITING_FOR_BALL --> PAUSED : Idle Timeout (120s, Sweep Guard, Preset Pause)
-    PAUSED --> WAITING_FOR_BALL : Ball Sensed / Button Press / Serial 't' (Sweep Up)
+    %% Main Routing
+    Wait ===>|Ball Trigger<br>_throwCount == 1| T1_Start[T1_SWEEP_GUARD_FIRST]:::cycle
+    Wait ===>|Ball Trigger<br>_throwCount == 2| T2_Start[T2_SWEEP_GUARD_FIRST]:::cycle
+    Wait ===>|Strike / Reset / 'r'| R_Start[MANUAL_RESET_START]:::cycle
 
-    %% Maintenance Mode Loop
-    BOOTING --> MODE_MAINT_ENTERING : Long Press / Serial 'm'
-    WAITING_FOR_BALL --> MODE_MAINT_ENTERING : Long Press / Serial 'm'
-    Throw1Cycle --> MODE_MAINT_ENTERING : Long Press / Serial 'm' (Sequence Abort)
-    Throw2Cycle --> MODE_MAINT_ENTERING : Long Press / Serial 'm' (Sequence Abort)
-    ResetCycle --> MODE_MAINT_ENTERING : Long Press / Serial 'm' (Sequence Abort)
+    %% Throw 1 Isolation
+    subgraph T1_Seq [Throw 1 Sequence]
+        direction TB
+        T1_Start --> T1_Settle[T1_PIN_SETTLE_WAIT: 3s]:::cycle
+        T1_Settle --> T1_Grab[T1_DECK_GRAB: Lift Pins]:::cycle
+        T1_Grab --> T1_SweepBack[T1_SWEEP_BACK: Clear Deadwood]:::cycle
+        T1_SweepBack --> T1_Guard[T1_SWEEP_GUARD_POST: Retract]:::cycle
+        T1_Guard --> T1_Drop[T1_DECK_DROP: Replace Pins]:::cycle
+        T1_Drop --> T1_Up[T1_SWEEP_UP: Clear Lane]:::cycle
+        T1_Up --> T1_Wait[T1_WAIT_TURRET_IDLE]:::cycle
+    end
 
-    MODE_MAINT_ENTERING --> MODE_MAINT_ACTIVE : Emergency Halt & Decouple Complete (Preset Maintenance)
-    MODE_MAINT_ACTIVE --> BOOTING : Button Press Exit (Initialize Kinematics)
+    %% Throw 2 Isolation
+    subgraph T2_Seq [Throw 2 Sequence]
+        direction TB
+        T2_Start --> T2_Settle[T2_PIN_SETTLE_WAIT: 3s]:::cycle
+        T2_Settle --> T2_SweepBack[T2_SWEEP_BACK: Clear All Pins]:::cycle
+    end
 
-    %% Sequence conceptual groups (Conceptual representation of multiple underlying states)
-    state Throw1Cycle {
-        T1_Start --> T1_Settle : Wait 3s (T1_PIN_SETTLE_WAIT)
-        T1_Settle --> T1_Grab : Deck Grab (T1_DECK_GRAB)
-        T1_Grab --> T1_Sweep_Deadwood : Sweep Back/Guard (T1_SWEEP_BACK/GUARD_POST)
-        T1_Sweep_Deadwood --> T1_Drop : Deck Drop (T1_DECK_DROP)
-        T1_Drop --> T1_Raise_Sweep : Sweep Up (T1_SWEEP_UP)
-        T1_Raise_Sweep --> T1_Wait_Turret : Wait/Wake Turret (T1_WAIT_TURRET_IDLE)
-        T1_Wait_Turret --> T1_End
-    }
+    %% Reset Isolation
+    subgraph Reset_Seq [Manual / Strike Reset]
+        direction TB
+        R_Start --> R_SweepBack[MANUAL_RESET_BACK: Clear All Pins]:::cycle
+    end
 
-    state Throw2Cycle {
-        T2_Start --> T2_Sweep_Clear : Settle 3s / Sweep Back/Guard (T2_SWEEP_BACK / RESET_SWEEP_GUARD_POST)
-        T2_Sweep_Clear --> T2_Drop_Complete_Checks : Wait for Turret Pins/Drop Complete
-        T2_Drop_Complete_Checks --> T2_Set_Pins : Dwell 1.5s / Deck Set Pins (RESET_DECK_SET)
-        T2_Set_Pins --> T2_Raise_Sweep : Sweep Up (RESET_SWEEP_UP)
-        T2_Raise_Sweep --> T2_Wait_Turret : Wait/Wake Turret (RESET_WAIT_TURRET_IDLE)
-        T2_Wait_Turret --> T2_End
-    }
+    %% Convergence Node for New Racks
+    subgraph Shared_Drop [Shared Pin Drop]
+        direction TB
+        Drop_Guard[RESET_SWEEP_GUARD_POST]:::drop --> Drop_Set[RESET_DECK_SET: Drop New Rack]:::drop
+        Drop_Set --> Drop_Up[RESET_SWEEP_UP]:::drop
+        Drop_Up --> Drop_Wait[RESET_WAIT_TURRET_IDLE]:::drop
+    end
 
-    state ResetCycle {
-        R_Sweep : Abort and Sweep Back (MANUAL_RESET_START)
-        R_Guard : Sweep Guard (MANUAL_RESET_BACK)
-        R_Sweep --> R_Guard
-        R_Guard --> T2_Drop_Complete_Checks : Proceed with Throw 2 Pin Drop Logic
-    }
+    %% Convergence Routing
+    T2_SweepBack --> Drop_Guard
+    R_SweepBack --> Drop_Guard
+
+    %% Return to Start Routing
+    T1_Wait ===>|Set _throwCount = 2<br>Trigger Door| Wait
+    Drop_Wait ===>|Set _throwCount = 1<br>Trigger Door| Wait
+
+    %% Maintenance Overrides
+    M_Start((Long Press / 'm')) --> M_Seq[MAINT_START<br>Sequence: Guard -> Park Deck -> Detach]:::alert
+    M_Seq --> M_Active[MODE_MAINT_ACTIVE<br>Motors Disabled]:::alert
+    M_Active -->|Short Press Exit| Boot
+
+    %% Invisible links to pull maintenance block to the side
+    T1_Seq ~~~ M_Start
 ```
 
 ---
@@ -221,13 +240,13 @@ The codebase is modularized into distinct C++ classes, each managing a specific 
 
 | Controller | Function | Core Hardware (`pin_config.h`) |
 | :--- | :--- | :--- |
-| **TurretController** | Manages the stepper motor that loads pins into the deck. Tracks homing, pin detection lockouts, and empty-turret purges. | `STEP_PIN`, `DIR_PIN`, `IR_SENSOR_PIN`, `HALL_EFFECT_PIN` |
+| **TurretController** | Manages the stepper motor that loads pins into the deck. Tracks homing, pin detection lockouts, and empty-turret purges. | `STEP_PIN`, `DIR_PIN`, `STEPPER_ENABLE_PIN`, `IR_SENSOR_PIN`, `HALL_EFFECT_PIN`, `MOTOR_RELAY_PIN` |
 | **DeckController** | Controls the sliding, raising, dropping, and scissor mechanisms that set and pick up the pins on the pindeck. | `SCISSOR_PIN`, `SLIDE_PIN`, `RAISE_LEFT_PIN`, `RAISE_RIGHT_PIN` |
 | **SweepController** | Drives the left and right sweep arms to clear deadwood using non-blocking tweening for smooth movement. | `LEFT_SWEEP_PIN`, `RIGHT_SWEEP_PIN` |
 | **BallReturnController** | Operates the safety door for the ball return, holding it open on a timer after a frame clears. | `BALL_RETURN_PIN` |
 | **BallSensorController** | Monitors the physical ball speed and trigger sensors using hardware interrupts to guarantee detection. | `BALL_SENSOR_PIN`, `BALL_SPEED_PIN` |
-| **WledController** | Manages the `Serial1` link to the ESP32, translating game events into specific WLED preset triggers. | `Serial1` (Hardware TX) |
-| **ScoreMoreController** | Parses incoming serial data from the scoring software to drive lane states, strike animations, and resets. | `Serial` (Main USB) |
+| **NativeLedController** / **WledController** | Manages LED animations and states. Conditionally compiled to either drive WS2812B strips natively or translate game events into JSON preset triggers for an external ESP32. | `DECK_PIN_L`, `DECK_PIN_R`, `LANE_PIN_L`, `LANE_PIN_R` (Native) OR `Serial1` (WLED Fallback) |
+| **ScoreMoreController** | Parses incoming serial data from the scoring software to drive lane states, strike animations, and physical hardware indicators. | `Serial` (Main USB), `SM_STRIKE_LIGHT`, `SM_SPARE_LIGHT`, `SM_PIN_1` |
 
 ---
 
