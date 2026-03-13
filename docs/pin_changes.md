@@ -1,5 +1,5 @@
 # Summary of pinout changes
-The the number of changes needed from the original script was minimized, however some pin out changes were required on the Arduino Mega board. 
+The the number of changes needed from the original script was minimized, however some pin out changes were required on the Arduino Mega board. I have made note for my own personal record on what has been changed here.
 
 | Variable | Original Arduino Assignment | New Arduino Assignment | Reason for change |
 | :--- | :--- | :--- | :--- |
@@ -8,7 +8,7 @@ The the number of changes needed from the original script was minimized, however
 | `BALL_SPEED_PIN` | A1 | 3 | Makes ready hardware interrupt pin for faster ball detection. |
 | `STEP_PIN` | 2 | A0 | Pin 2/3 required for possible HW interrupt. |
 | `DIR_PIN` | 3 | A1 | Pin 2/3 required for possible HW interrupt. |
-| `PINSETTER_RESET_PIN` |41 | 41 | No change! This adds the user button |
+| `PINSETTER_RESET_PIN` |41 | 48 | I just decided to use this pin to add the user button |
 
 ### Major Changes required for ESP -> WLED Control
 | Variable | Original Arduino Assignment | New Arduino Assignment | Reason for change |
