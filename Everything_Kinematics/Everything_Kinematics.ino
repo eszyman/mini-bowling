@@ -1066,7 +1066,7 @@ public:
                     Door.triggerCycle(); _throwCount = 1; changeState(WAITING_FOR_BALL); 
                 }
                 else if (Turret.isIdleEmpty()) {
-                    Turret.commandStartRefill(); Door.triggerCycle(); _throwCount = 1; changeState(WAITING_FOR_BALL); 
+                    Turret.commandStartRefill(); Door.triggerCycle(); _throwCount = 1; clearFillBall(); changeState(WAITING_FOR_BALL); 
                 }
                 else if (!Turret.isHoming() && !Turret.isCommittedToDrop()) {
                     Turret.commandWake(); Door.triggerCycle(); _throwCount = 1; changeState(WAITING_FOR_BALL); 
@@ -1244,6 +1244,21 @@ public:
     }
 
     void update() {
+        if ((_pendingStrike || _pendingSpare) && (millis() - _animWindowStart > EVAL_WINDOW_MS)) {
+            if (_pendingStrike) {
+                DEBUG_PRINT("Executing Buffered STRIKE");
+                Game.triggerStrike();
+                Wled.triggerPreset(WLED_PRESET_STRIKE);
+            } else if (_pendingSpare) {
+                DEBUG_PRINT("Executing Buffered SPARE");
+                Game.triggerLaneReset();
+                Wled.triggerPreset(WLED_PRESET_SPARE);
+            }
+            // Clear the buffer
+            _pendingStrike = false;
+            _pendingSpare = false;
+        }
+
         while (Serial.available()) {
             char c = Serial.read();
 
@@ -1283,6 +1298,10 @@ public:
 private:
     char _buffer[100];
     uint8_t _index;
+    unsigned long _animWindowStart = 0;
+    bool _pendingStrike = false;
+    bool _pendingSpare = false;
+    const unsigned long EVAL_WINDOW_MS = 150;
 
     void handleCommand(String cmd) {
         if (cmd.length() == 1) {
@@ -1328,16 +1347,18 @@ private:
                 else if (smPin == SM_STRIKE_LIGHT) {
                     digitalWrite(smPin, val);
                     if (val == 1) {
-                        Wled.triggerPreset(WLED_PRESET_STRIKE);
-                        Game.triggerStrike(); 
+                        // Start the timer if it isn't already running
+                        if (!_pendingStrike && !_pendingSpare) _animWindowStart = millis();
+                        _pendingStrike = true;
                     }
                 }
                 else {
                     // Standard hardware pin drive for Spare, Miss, etc.
                     digitalWrite(smPin, val);
                     if (val == 1) {
-                        if (smPin == SM_SPARE_LIGHT) Wled.triggerPreset(WLED_PRESET_SPARE);
-                        else if (smPin == SM_PIN_1) Wled.triggerPreset(WLED_PRESET_MISS); 
+                        // Start the timer if it isn't already running
+                        if (!_pendingStrike && !_pendingSpare) _animWindowStart = millis();
+                        _pendingSpare = true;
                     }
                 }
                 
@@ -1457,11 +1478,3 @@ void loop() {
         }
     }
 }
-
-
-
-
-
-
-
-
