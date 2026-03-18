@@ -9,6 +9,12 @@
 // =====================================================
 #define DEBUG_TURRET 0          // Set to 0 to disable turret serial prints
 
+
+// Hardware vs. Software Configuration Flag for accurate no-miss ball sensors
+// Set to 0: Uses software polling. Ignores EMI noise, no hardware mods needed.
+// Set to 1: Uses hardware interrupts. ONLY use if you have installed physical RC filters to stop EMI.
+#define USE_HARDWARE_INTERRUPTS 0 
+
 // =====================================================
 // SCOREMORE SERIAL BAUD RATE & CONFIG
 // =====================================================
