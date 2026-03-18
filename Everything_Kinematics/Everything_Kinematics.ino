@@ -532,10 +532,9 @@ volatile bool _isrTriggerTripped = false;
 volatile unsigned long _isrSpeedTime = 0;
 volatile unsigned long _isrTriggerTime = 0;
 
-// SENSOR 1: SPEED (Use Hardware Interrupt Pin)
+#if USE_HARDWARE_INTERRUPTS == 1
+// SENSOR 1: SPEED (Clean hardware signal expected)
 void ballSensorSpeedISR() {
-    delayMicroseconds(100); 
-    if (digitalRead(BALL_SPEED_PIN) == HIGH) return; 
     unsigned long currentMicros = micros(); 
     if (currentMicros - _isrSpeedTime > (BALL_REARM_MS * 1000UL)) {
         _isrSpeedTripped = true;
@@ -543,47 +542,51 @@ void ballSensorSpeedISR() {
     }
 }
 
-// SENSOR 2: TRIGGER (Use Hardware Interrupt Pin)
+// SENSOR 2: TRIGGER (Clean hardware signal expected)
 void ballSensorTriggerISR() {
-    delayMicroseconds(100);
-    if (digitalRead(BALL_SENSOR_PIN) == HIGH) return;
-    unsigned long currentMicros = micros(); 
+    unsigned long currentMicros = micros();
     if (currentMicros - _isrTriggerTime > (BALL_REARM_MS * 1000UL)) {
         _isrTriggerTripped = true;
         _isrTriggerTime = currentMicros;
     }
 }
+#endif
 
 class BallSensorController {
 public:
     BallSensorController(int pinSpeed, int pinTrigger) : _pinSpeed(pinSpeed), _pinTrigger(pinTrigger), 
         _smSpeedPulseActive(false), _smTriggerPulseActive(false), 
         _smSpeedPulseStart(0), _smTriggerPulseStart(0),
-        _wasReady(false), _readyStartTime(0) {}
+        _wasReady(false), _readyStartTime(0),
+        _lastFlickerSpeed(HIGH), _lastFlickerTrigger(HIGH),
+        _lastSpeedRead(HIGH), _lastTriggerRead(HIGH),
+        _speedDebounceTime(0), _triggerDebounceTime(0) {}
     
     void begin() { 
-        pinMode(_pinSpeed, INPUT_PULLUP); 
+        pinMode(_pinSpeed, INPUT_PULLUP);
         pinMode(_pinTrigger, INPUT_PULLUP); 
+
+        #if USE_HARDWARE_INTERRUPTS == 1
         attachInterrupt(digitalPinToInterrupt(_pinSpeed), ballSensorSpeedISR, FALLING);
         attachInterrupt(digitalPinToInterrupt(_pinTrigger), ballSensorTriggerISR, FALLING);
+        #endif
     }
     
     bool updateAndCheck(bool systemReady) {
-        // --- 1. SCOREMORE PULSE TIMEOUTS (Moved to top) ---
-        // These MUST execute even if the machine is moving, otherwise 
-        // ScoreMore gets stuck thinking the beam is permanently broken.
+        // --- 1. SCOREMORE PULSE TIMEOUTS ---
         if (_smSpeedPulseActive && (millis() - _smSpeedPulseStart >= SCOREMORE_BALL_PULSE_MS)) {
-            Serial.print("INPUT_CHANGE:"); Serial.print(SM_SPEED_SENSOR); Serial.println(":1");
+            Serial.print("INPUT_CHANGE:");
+            Serial.print(SM_SPEED_SENSOR); Serial.println(":1");
             _smSpeedPulseActive = false;
         }
 
         if (_smTriggerPulseActive && (millis() - _smTriggerPulseStart >= SCOREMORE_BALL_PULSE_MS)) {
-            Serial.print("INPUT_CHANGE:"); Serial.print(SM_BALL_TRIGGER); Serial.println(":1");
+            Serial.print("INPUT_CHANGE:");
+            Serial.print(SM_BALL_TRIGGER); Serial.println(":1");
             _smTriggerPulseActive = false;
         }
 
         // --- 2. SWEEP OCCLUSION ---
-        // Ignore NEW physical triggers if the machine is busy
         if (!systemReady) {
             _wasReady = false;
             _isrSpeedTripped = false;
@@ -607,17 +610,45 @@ public:
 
         bool triggeredGame = false;
 
-        // --- DECOUPLED SPEED SENSOR ---
+        #if USE_HARDWARE_INTERRUPTS == 0
+        // --- 4. SOFTWARE POLLING (EMI RESISTANT) ---
+        // Simulates an ISR falling-edge trigger but with a 5ms physical debounce requirement
+        
+        int currentSpeedRead = digitalRead(_pinSpeed);
+        if (currentSpeedRead != _lastFlickerSpeed) {
+            _speedDebounceTime = millis();
+        }
+        if ((millis() - _speedDebounceTime) > 5) { // Requires 5ms continuous block
+            if (currentSpeedRead != _lastSpeedRead) {
+                _lastSpeedRead = currentSpeedRead;
+                if (_lastSpeedRead == LOW) _isrSpeedTripped = true;
+            }
+        }
+        _lastFlickerSpeed = currentSpeedRead;
+
+        int currentTriggerRead = digitalRead(_pinTrigger);
+        if (currentTriggerRead != _lastFlickerTrigger) {
+            _triggerDebounceTime = millis();
+        }
+        if ((millis() - _triggerDebounceTime) > 5) { // Requires 5ms continuous block
+            if (currentTriggerRead != _lastTriggerRead) {
+                _lastTriggerRead = currentTriggerRead;
+                if (_lastTriggerRead == LOW) _isrTriggerTripped = true;
+            }
+        }
+        _lastFlickerTrigger = currentTriggerRead;
+        #endif
+
+        // --- 5. EVALUATE TRIPS ---
         if (_isrSpeedTripped) {
-            _isrSpeedTripped = false; 
+            _isrSpeedTripped = false;
             Serial.print("INPUT_CHANGE:"); Serial.print(SM_SPEED_SENSOR); Serial.println(":0");
             _smSpeedPulseActive = true;
             _smSpeedPulseStart = millis();
         }
 
-        // --- DECOUPLED TRIGGER SENSOR ---
         if (_isrTriggerTripped) {
-            _isrTriggerTripped = false; 
+            _isrTriggerTripped = false;
             triggeredGame = true; 
             Serial.print("INPUT_CHANGE:"); Serial.print(SM_BALL_TRIGGER); Serial.println(":0");
             _smTriggerPulseActive = true;
@@ -632,6 +663,11 @@ private:
     bool _smSpeedPulseActive, _smTriggerPulseActive;
     unsigned long _smSpeedPulseStart, _smTriggerPulseStart;
     bool _wasReady; unsigned long _readyStartTime;
+    
+    // Software polling state variables
+    int _lastFlickerSpeed, _lastFlickerTrigger;
+    int _lastSpeedRead, _lastTriggerRead;
+    unsigned long _speedDebounceTime, _triggerDebounceTime;
 };
 
 // ==========================================
